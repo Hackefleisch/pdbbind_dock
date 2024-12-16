@@ -1,6 +1,5 @@
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from rdkit.Chem import rdFMCS
 
 from clean_pdb import Cleaner
 
