@@ -129,36 +129,3 @@ def add_confs_to_res(mol, mutable_res, index_to_vd):
 def mutable_res_to_res(mutable_res):
     lig_restype_non_mutable = rosetta.core.chemical.ResidueType.make( mutable_res )
     return rosetta.core.conformation.Residue( lig_restype_non_mutable, True )
-
-def load_pose( pdbbind_path, pdb_id, pdb_suffix='_protein.pdb', lig_suffix='_ligand.mol2', clean=False ):
-
-    path = pdbbind_path
-    if path[-1] != '/': path += '/'
-
-    path += pdb_id + '/' + pdb_id
-
-    pdb_file = path + pdb_suffix
-    lig_file = path + lig_suffix
-
-    cleaner = Cleaner()
-
-    pdb_string = ""
-    if clean:
-        pdb_string, _, _, flags = cleaner.apply(pdb_file)
-    else:
-        with open(pdb_file) as file:
-            pdb_string = file.read()
-
-    pose = rosetta.core.pose.Pose()
-    rosetta.core.import_pose.pose_from_pdbstring(pose, pdb_string)
-
-    mol = load_ligand(lig_file)
-    mut_res, index_to_vd = rdkit_to_mutable_res(mol)
-    mut_res = add_confs_to_res(mol, mut_res, index_to_vd)
-    res = mutable_res_to_res(mut_res)
-
-    pose.append_residue_by_jump( res, 1, "", "", True )
-    pose.pdb_info().chain( pose.total_residue(), 'X' )
-    pose.update_pose_chains_from_pdb_chains()
-
-    return pose
