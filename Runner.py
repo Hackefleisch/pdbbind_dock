@@ -273,14 +273,15 @@ class Runner():
                 raise ValueError("Faulty jump id")
             mover = pyrosetta.rosetta.protocols.rigid.RigidBodyTransMover( in_pose, jump_id )
             trans_vec = mover.trans_axis()
-            mover.step_size(500)
+            mover.step_size(30)
             mover.apply(in_pose)
 
         if relax:
             fast_relax = rosetta.protocols.relax.FastRelax()
             fast_relax.set_scorefxn(self.scfx)
             fast_relax.constrain_relax_to_start_coords(True)
-            fast_relax.coord_constrain_sidechains(not move_ligand)
+            fast_relax.coord_constrain_sidechains(False)
+            fast_relax.constrain_coords(True)
             fast_relax.ramp_down_constraints(False)
             scores = []
             max_relax = self.n_relax

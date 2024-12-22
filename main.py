@@ -7,7 +7,7 @@ import pickle
 
 def main(pdbbind_path, pdb):
     r = Runner(pdbbind_path, pdb, ['xml_protocols/docking_std.xml', 'xml_protocols/docking_perturb.xml'])
-    r.run(1, 0)
+    r.run(10, 150)
 
     features = {
         "pdb" : r.pdb,
@@ -29,6 +29,6 @@ def main(pdbbind_path, pdb):
 if __name__ == '__main__':
     import argparse
 
-    pyrosetta.init(options='-in:auto_setup_metals -ex1 -ex2 -restore_pre_talaris_2013_behavior true -out:level 100', silent=True)
+    pyrosetta.init(options='-in:auto_setup_metals -ex1 -ex2 -restore_pre_talaris_2013_behavior true -out:levels all:100', silent=True)
 
     main( 'pdbbind_2020', '4f4p' )
