@@ -59,8 +59,8 @@ class Runner():
         }
         self.n_relax = {
             'pose' : 0,
-            'pose_relax' : 0,
-            'pose_ligaway' : 10,
+            'pose_relax' : 10,
+            'pose_ligaway' : 0,
             'pose_relax_ligaway' : 10,
         }
 
