@@ -57,7 +57,12 @@ class Runner():
             'pose_ligaway' : None,
             'pose_relax_ligaway' : None,
         }
-        self.n_relax = None
+        self.n_relax = {
+            'pose' : 0,
+            'pose_relax' : 0,
+            'pose_ligaway' : 10,
+            'pose_relax_ligaway' : 10,
+        }
 
         # ---       Store run results      ---
         # should hold an array of results for each protocol name and each starting structure
@@ -69,9 +74,10 @@ class Runner():
         #       - runtime
         self.docking_results = {}
 
-    def run(self, n_relax, n_runs):
+    def run(self, n_relax, n_relax_ligaway, n_runs):
         total_start = timer()
-        self.n_relax = n_relax
+        self.n_relax['pose_relax'] = n_relax
+        self.n_relax['pose_relax_ligaway'] = n_relax_ligaway
         self.load_protocols()
         self.load_poses()
         self.store_poses()
@@ -249,7 +255,7 @@ class Runner():
             print("Start processing pose:", name)
             relax = 'relax' in name
             move_ligand = 'ligaway' in name
-            self.complex_results[name], self.poses[name] = self.process_pose(pose, relax=relax, move_ligand=move_ligand)
+            self.complex_results[name], self.poses[name] = self.process_pose(pose, relax=self.n_relax[name], move_ligand=move_ligand)
             self.poses[name].dump_pdb(name + ".pdb")
 
     def process_pose(self, in_pose, relax, move_ligand):
@@ -276,7 +282,7 @@ class Runner():
             mover.step_size(30)
             mover.apply(in_pose)
 
-        if relax:
+        if relax > 0:
             fast_relax = rosetta.protocols.relax.FastRelax()
             fast_relax.set_scorefxn(self.scfx)
             fast_relax.constrain_relax_to_start_coords(True)
@@ -284,7 +290,7 @@ class Runner():
             fast_relax.constrain_coords(True)
             fast_relax.ramp_down_constraints(False)
             scores = []
-            max_relax = self.n_relax
+            max_relax = relax
             best_pose = in_pose
             for i in range(max_relax):
                 work_pose = in_pose.clone()
@@ -325,6 +331,12 @@ class Runner():
         rmsd = self.crystal_ligand_rmsd.calculate(in_pose)
         results['rmsd_to_crystal'] = rmsd
         print("\tRMSD to crystall structure:", f'{rmsd:.4f}')
+
+        had_constraints = in_pose.remove_constraints()
+        if had_constraints:
+            print("\tRemoved all constraints from pose")
+        else:
+            print("\tNo constraints were added to pose.")
 
         end = timer()
         results['prepare_time'] = end - start
