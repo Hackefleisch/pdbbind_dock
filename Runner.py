@@ -124,8 +124,8 @@ class Runner():
                     print("\tBest idelta:", f'{best_idelta:.4f}', "RMSD to input:", f'{self.input_ligand_rmsd.calculate(best_idelta_pose):.4f}', "RMSD to crystal:", f'{self.crystal_ligand_rmsd.calculate(best_idelta_pose):.4f}')
                     print("\tAverage pdb size reduction:", f'{100*mean(compressions):.4f}%')
 
-                    best_idelta_pose.dump_pdb(run_name + "_idelta.pdb")
-                    best_score_pose.dump_pdb(run_name + "_score.pdb")
+                    #best_idelta_pose.dump_pdb(run_name + "_idelta.pdb")
+                    #best_score_pose.dump_pdb(run_name + "_score.pdb")
         else:
             print("[WARNING] No docking runs are conducted. Set n_runs > 0 to change that.")
 
@@ -247,7 +247,7 @@ class Runner():
             relax = 'relax' in name
             move_ligand = 'ligaway' in name
             self.complex_results[name], self.poses[name] = self.process_pose(pose, relax=self.n_relax[name], move_ligand=move_ligand)
-            self.poses[name].dump_pdb(name + ".pdb")
+            #self.poses[name].dump_pdb(name + ".pdb")
 
     def process_pose(self, in_pose, relax, move_ligand):
         results = {
