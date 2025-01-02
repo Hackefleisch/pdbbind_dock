@@ -17,7 +17,7 @@ class Runner():
         path += self.pdb + '/' + self.pdb
 
         self.pdb_file = path + '_protein.pdb'
-        self.lig_file = path + '_ligand.mol2'
+        self.lig_file = path + '_ligand.sdf'
 
         # ---       Protocol loading      ---
         # should be a dictionary linking a name to a protocol

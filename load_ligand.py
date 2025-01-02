@@ -1,16 +1,19 @@
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from clean_pdb import Cleaner
-
 from pyrosetta import *
 
 def load_ligand(lig_file, nconf=0):
-    orig_mol = Chem.MolFromMol2File(lig_file, sanitize=True, removeHs=True, cleanupSubstructures=True)
-    #mol_noH = Chem.RemoveHs(mol)
-    nrotbonds = Chem.rdMolDescriptors.CalcNumRotatableBonds(orig_mol, strict=True)
-    mol = Chem.AddHs(orig_mol)
-    AllChem.ConstrainedEmbed(mol, orig_mol)
+
+    sdf_supplier = Chem.SDMolSupplier(lig_file, sanitize=False, removeHs=False)
+    mol = sdf_supplier[0]
+    mol_noH = Chem.RemoveHs(mol)
+    nrotbonds = Chem.rdMolDescriptors.CalcNumRotatableBonds(mol_noH, strict=True)
+
+    #orig_mol = Chem.MolFromMol2File(lig_file, sanitize=True, removeHs=True, cleanupSubstructures=True)
+    #nrotbonds = Chem.rdMolDescriptors.CalcNumRotatableBonds(orig_mol, strict=True)
+    #mol = Chem.AddHs(orig_mol)
+    #AllChem.ConstrainedEmbed(mol, orig_mol)
 
     # nconf logic adapted from Jean-Paul Ebejer's presentation
 	# at the London RDKit User General Meeting
