@@ -139,7 +139,7 @@ class Runner():
             print("[WARNING] No docking runs are conducted. Set n_runs > 0 to change that.")
 
         total_end = timer()
-        print("Finished processing of", self.pdb, "in", f'{(total_end - total_start)/60:.4f}', "minutes")
+        print("Finished processing", self.pdb, "in", f'{(total_end - total_start)/60:.4f}', "minutes")
 
     def store_docking_result(self, input_pose_name, result_pose, time):
         #       - pose string delta
@@ -204,6 +204,7 @@ class Runner():
             self.protocols[name] = ( xml_objects.get_mover("ParsedProtocol") )
             print("[Warning] Trying to load a score function called \"hard_rep\" from this xml protocol. It will overwrite the previously loaded score function and will be used to score everything outside of protocols. This behaviour might be undesired.")
             self.scfx = xml_objects.get_score_function("hard_rep")
+            self.scfx.set_weight( rosetta.core.scoring.coordinate_constraint, 0.5 )
         
         for i in range(rosetta.core.scoring.n_score_types):
             weight = self.scfx.weights()[ rosetta.core.scoring.ScoreType(i) ]
@@ -267,6 +268,9 @@ class Runner():
             'prepare_time' : None,
             # will only be filled if relax is called
             'score_distribution' : None,
+            # only used for relax without ligand moved away
+            'raw_delta_energies' : {},
+            'idelta_score' : None,
         }
 
         start = timer()
@@ -279,16 +283,19 @@ class Runner():
                 raise ValueError("Faulty jump id")
             mover = pyrosetta.rosetta.protocols.rigid.RigidBodyTransMover( in_pose, jump_id )
             trans_vec = mover.trans_axis()
-            mover.step_size(30)
+            mover.step_size(500)
             mover.apply(in_pose)
 
         if relax > 0:
             fast_relax = rosetta.protocols.relax.FastRelax()
             fast_relax.set_scorefxn(self.scfx)
-            fast_relax.constrain_relax_to_start_coords(True)
-            fast_relax.coord_constrain_sidechains(False)
-            fast_relax.constrain_coords(True)
             fast_relax.ramp_down_constraints(False)
+
+            coord_cst_mover = rosetta.protocols.relax.AtomCoordinateCstMover()
+            coord_cst_mover.cst_sidechain( False )
+            coord_cst_mover.ambiguous_hnq( True )
+            coord_cst_mover.apply(in_pose)
+
             scores = []
             max_relax = relax
             best_pose = in_pose
@@ -304,6 +311,16 @@ class Runner():
 
             in_pose = best_pose
             results['score_distribution'] = scores
+
+            if not move_ligand:
+                interface_scores = rosetta.protocols.ligand_docking.get_interface_deltas( 'X', in_pose, self.scfx )
+                results['idelta_score'] = interface_scores["interface_delta_X"]
+                for score_type in interface_scores.keys():
+                    term = str(score_type)[5:]
+                    if term in self.score_weights:
+                        weight = self.score_weights[term]
+                        results['raw_delta_energies'][term] = interface_scores[score_type] / weight
+                print('\tSaved interface deltas:', f'{results["idelta_score"]:.4f}')
 
         results['pdb_string_arr'] = self.pose_to_stringarr(in_pose)
 
