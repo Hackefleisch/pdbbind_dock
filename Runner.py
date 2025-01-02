@@ -32,8 +32,6 @@ class Runner():
             'pose' : rosetta.core.pose.Pose(),
             # relaxed pose with all cofactors
             'pose_relax' : None,
-            # unchanged pose from pdb file, but ligand got move before scoring - should not be docked into, since it is the same as pose
-            'pose_ligaway' : None,
             # relaxed pose with ligand moved outside of pocket before relax
             'pose_relax_ligaway' : None,
         }
@@ -54,13 +52,11 @@ class Runner():
         self.complex_results = {
             'pose' : None,
             'pose_relax' : None,
-            'pose_ligaway' : None,
             'pose_relax_ligaway' : None,
         }
         self.n_relax = {
             'pose' : 0,
             'pose_relax' : 10,
-            'pose_ligaway' : 0,
             'pose_relax_ligaway' : 10,
         }
 
@@ -85,11 +81,6 @@ class Runner():
         if n_runs > 0:
             for protocol_name, protocol in self.protocols.items():
                 for pose_name, pose in self.poses.items():
-                    if pose_name == "pose_ligaway":
-                        # this pose will be skipped since it is the same as the crystal structure
-                        # it is only generated to calculate delta scores of the crystal structure
-                        continue
-                    
                     # run protocols
                     run_start = timer()
                     run_name = protocol_name + "_" + pose_name
@@ -230,7 +221,6 @@ class Runner():
         self.poses['pose'].update_pose_chains_from_pdb_chains()
 
         self.poses['pose_relax'] = self.poses['pose'].clone()
-        self.poses['pose_ligaway'] = self.poses['pose'].clone()
         self.poses['pose_relax_ligaway'] = self.poses['pose'].clone()
 
         res_selector = rosetta.core.select.residue_selector.ResidueIndexSelector(self.poses['pose'].total_residue())
@@ -268,7 +258,6 @@ class Runner():
             'prepare_time' : None,
             # will only be filled if relax is called
             'score_distribution' : None,
-            # only used for relax without ligand moved away
             'raw_delta_energies' : {},
             'idelta_score' : None,
         }
@@ -312,21 +301,22 @@ class Runner():
             in_pose = best_pose
             results['score_distribution'] = scores
 
-            if not move_ligand:
-                interface_scores = rosetta.protocols.ligand_docking.get_interface_deltas( 'X', in_pose, self.scfx )
-                results['idelta_score'] = interface_scores["interface_delta_X"]
-                for score_type in interface_scores.keys():
-                    term = str(score_type)[5:]
-                    if term in self.score_weights:
-                        weight = self.score_weights[term]
-                        results['raw_delta_energies'][term] = interface_scores[score_type] / weight
-                print('\tSaved interface deltas:', f'{results["idelta_score"]:.4f}')
-
         results['pdb_string_arr'] = self.pose_to_stringarr(in_pose)
 
         # saving total score
         results['total_score'] = self.scfx(in_pose)
         print("\tSaved total score:", f'{results["total_score"]:.4f}')
+
+        # saving interface scores
+        interface_scores = rosetta.protocols.ligand_docking.get_interface_deltas( 'X', in_pose, self.scfx )
+        results['idelta_score'] = interface_scores["interface_delta_X"]
+        print('\tSaved interface delta score:', f'{results["idelta_score"]:.4f}')
+        for score_type in interface_scores.keys():
+            term = str(score_type)[5:]
+            if term in self.score_weights:
+                weight = self.score_weights[term]
+                results['raw_delta_energies'][term] = interface_scores[score_type] / weight
+        print("\tSaved", len(results['raw_delta_energies']), 'raw delta Rosetta energy terms')
 
         # saving raw energies
         for i in range(rosetta.core.scoring.n_score_types):
@@ -357,7 +347,7 @@ class Runner():
 
         end = timer()
         results['prepare_time'] = end - start
-        print("\tProcessing this pose took", f'{results["prepare_time"]:.4f}', 'seconds')
+        print("\tProcessing this pose took", f'{results["prepare_time"]/60:.4f}', 'minutes')
 
         return results, in_pose
 
