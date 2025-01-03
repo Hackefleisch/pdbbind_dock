@@ -158,7 +158,7 @@ class Runner():
 
         # saving pdb string deltas
         pdb_stringarr = self.pose_to_stringarr(result_pose)
-        orig_stringarr = self.complex_results[input_pose_name][0]
+        orig_stringarr = self.complex_results[input_pose_name][0]['pdb_string_arr']
         for i,line in enumerate(pdb_stringarr):
             if line != orig_stringarr[i]:
                 results['pdb_string_delta'][i] = line
@@ -259,23 +259,19 @@ class Runner():
             #self.poses[name].dump_pdb(name + ".pdb")
 
     def process_pose(self, in_pose, name, relax, move_ligand):
-        results = self.complex_results.empty(name, shape=8, dtype=object, object_codec=numcodecs.JSON(), compressor=self.compressor)
-        # pdb_string_arr
-        results[0] = []
-        # total_score
-        results[1] = 0
-        # raw_energies
-        results[2] = {}
-        # rmsd_to_crystal
-        results[3] = 0
-        # prepare_time
-        results[4] = 0
-        # score_distribution
-        results[5] = []
-        # raw_delta_energies
-        results[6] = {}
-        # idelta_score
-        results[7] = 0
+        results = self.complex_results.empty(name, shape=1, dtype=object, object_codec=numcodecs.JSON(), compressor=self.compressor)
+
+        tmp_results = {
+            'pdb_string_arr' : [],
+            'total_score' : None,
+            'raw_energies' : {},
+            'rmsd_to_crystal' : None,
+            'prepare_time' : None,
+            # will only be filled if relax is called
+            'score_distribution' : None,
+            'raw_delta_energies' : {},
+            'idelta_score' : None,
+        }
 
         start = timer()
         
@@ -315,25 +311,25 @@ class Runner():
 
             in_pose = best_pose
             # score_distribution
-            results[5] = scores
+            tmp_results['score_distribution'] = scores
 
         # pdb_string_arr
-        results[0] = self.pose_to_stringarr(in_pose)
+        tmp_results['pdb_string_arr'] = self.pose_to_stringarr(in_pose)
 
         # saving total score
-        results[1] = self.scfx(in_pose)
-        print("\tSaved total score:", f'{results[1]:.4f}')
+        tmp_results['total_score'] = self.scfx(in_pose)
+        print("\tSaved total score:", f'{tmp_results["total_score"]:.4f}')
 
         # saving interface scores
         interface_scores = rosetta.protocols.ligand_docking.get_interface_deltas( 'X', in_pose, self.scfx )
-        results[7] = interface_scores["interface_delta_X"]
-        print('\tSaved interface delta score:', f'{results[7]:.4f}')
+        tmp_results['idelta_score'] = interface_scores["interface_delta_X"]
+        print('\tSaved interface delta score:', f'{tmp_results["idelta_score"]:.4f}')
         for score_type in interface_scores.keys():
             term = str(score_type)[5:]
             if term in self.score_weights:
                 weight = self.score_weights[term]
-                results[6][term] = interface_scores[score_type] / weight
-        print("\tSaved", len(results[6]), 'raw delta Rosetta energy terms')
+                tmp_results['raw_delta_energies'][term] = interface_scores[score_type] / weight
+        print("\tSaved", len(tmp_results['raw_delta_energies']), 'raw delta Rosetta energy terms')
 
         # saving raw energies
         for i in range(rosetta.core.scoring.n_score_types):
@@ -341,8 +337,8 @@ class Runner():
             term = str(rosetta.core.scoring.ScoreType(i)).split('.')[-1]
             raw_energy = in_pose.energies().total_energies()[ rosetta.core.scoring.ScoreType(i) ]
             if abs(weight) > 1e-100:
-                results[ 2 ][ term ] = raw_energy
-        print("\tSaved", len(results[2]), 'raw Rosetta energy terms')
+                tmp_results[ 'raw_energies' ][ term ] = raw_energy
+        print("\tSaved", len(tmp_results['raw_energies']), 'raw Rosetta energy terms')
 
         if move_ligand:
             rmsd_prior = self.crystal_ligand_rmsd.calculate(in_pose)
@@ -353,7 +349,7 @@ class Runner():
             print("\tMoved ligand back into binding pocket. New score:", f'{lig_replaced_score:.4f}')
 
         rmsd = self.crystal_ligand_rmsd.calculate(in_pose)
-        results[3] = rmsd
+        tmp_results['rmsd_to_crystal'] = rmsd
         print("\tRMSD to crystall structure:", f'{rmsd:.4f}')
 
         had_constraints = in_pose.remove_constraints()
@@ -363,10 +359,11 @@ class Runner():
             print("\tNo constraints were added to pose.")
 
         end = timer()
-        results[4] = end - start
-        print("\tProcessing this pose took", f'{results[4]/60:.4f}', 'minutes')
+        tmp_results['prepare_time'] = end - start
+        print("\tProcessing this pose took", f'{tmp_results["prepare_time"]/60:.4f}', 'minutes')
 
         self.poses[name] = in_pose
+        results[0] = tmp_results
 
     def pose_to_stringarr(self, pose):
         pu = rosetta.core.io.pose_to_sfr.PoseToStructFileRepConverter()
