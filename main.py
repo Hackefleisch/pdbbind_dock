@@ -6,11 +6,11 @@ import pickle
 
 
 def main(pdbbind_path, pdb, n_relax, n_relax_ligaway, n_runs):
-    r = Runner(pdbbind_path, pdb, ['xml_protocols/docking_std.xml', 'xml_protocols/docking_perturb.xml'])
+    r = Runner(pdbbind_path, pdb, ['xml_protocols/docking_std.xml', 'xml_protocols/docking_perturb.xml'], zarr_path='test.zarr')
     r.run(n_relax=n_relax, n_relax_ligaway=n_relax_ligaway, n_runs=n_runs)
     features = {
         "pdb" : r.pdb,
-        "conformers" : r.conformers,
+        #"conformers" : r.conformers,
         "atm_to_idx" : r.atmname_to_idx,
         "input_complexes" : r.complex_results,
         "docking_results" : r.docking_results,

@@ -132,3 +132,6 @@ def add_confs_to_res(mol, mutable_res, index_to_vd):
 def mutable_res_to_res(mutable_res):
     lig_restype_non_mutable = rosetta.core.chemical.ResidueType.make( mutable_res )
     return rosetta.core.conformation.Residue( lig_restype_non_mutable, True )
+
+def moltomolblock(mol):
+    return Chem.MolToMolBlock(mol, kekulize = False, confId=0)
