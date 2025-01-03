@@ -75,7 +75,7 @@ class Runner():
         #       - runtime
         self.docking_results = self.zarr_root.create_group('docking_results')
 
-    def run(self, n_relax, n_relax_ligaway, n_runs):
+    def run(self, n_relax, n_relax_ligaway, n_dock):
         total_start = timer()
         self.n_relax['pose_relax'] = n_relax
         self.n_relax['pose_relax_ligaway'] = n_relax_ligaway
@@ -83,20 +83,20 @@ class Runner():
         self.load_poses()
         self.store_poses()
 
-        if n_runs > 0:
+        if n_dock > 0:
             for protocol_name, protocol in self.protocols.items():
                 for pose_name, pose in self.poses.items():
                     # run protocols
                     run_start = timer()
                     run_name = protocol_name + "_" + pose_name
-                    print("Start", n_runs, "repeats of", run_name)
+                    print("Start", n_dock, "repeats of", run_name)
                     result_poses = []
                     result_times = []
                     best_score = 99999.9
                     best_score_pose = None
                     best_idelta = 99999.9
                     best_idelta_pose = None
-                    for i in range(n_runs):
+                    for i in range(n_dock):
                         start = timer()
                         work_pose = pose.clone()
                         protocol.apply(work_pose)
@@ -116,7 +116,7 @@ class Runner():
                     self.input_ligand_rmsd.set_comparison_pose(pose)
                     self.best_score_ligand_rmsd.set_comparison_pose(best_score_pose)
                     self.best_idelta_ligand_rmsd.set_comparison_pose(best_idelta_pose)
-                    results = self.docking_results.empty(run_name, shape=n_runs, dtype=object, object_codec=numcodecs.JSON(), compressor=self.compressor)
+                    results = self.docking_results.empty(run_name, shape=n_dock, dtype=object, object_codec=numcodecs.JSON(), compressor=self.compressor)
                     compressions = []
                     for i in range(len(result_poses)):
                         result, compression = self.store_docking_result(pose_name, result_poses[i], result_times[i])

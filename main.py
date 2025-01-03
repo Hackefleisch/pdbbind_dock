@@ -1,29 +1,41 @@
 from pyrosetta import *
 
 from Runner import Runner
-import pickle
+import pathlib
 
 
+def main(pdbbind_path, pdb_file, pdb_index, n_relax, n_relax_ligaway, n_dock, zarr_path):
 
-def main(pdbbind_path, pdb, n_relax, n_relax_ligaway, n_runs):
-    r = Runner(pdbbind_path, pdb, ['xml_protocols/docking_std.xml', 'xml_protocols/docking_perturb.xml'], zarr_path='test.zarr')
-    r.run(n_relax=n_relax, n_relax_ligaway=n_relax_ligaway, n_runs=n_runs)
-    features = {
-        "pdb" : r.pdb,
-        #"conformers" : r.conformers,
-        "atm_to_idx" : r.atmname_to_idx,
-        "input_complexes" : r.complex_results,
-        "docking_results" : r.docking_results,
-    }
+    # load pdbs
+    pdb = ""
+    counter = 0
+    with open(pdb_file) as f:
+        for line in f:
+            # skip comments
+            if line[0] == '#':
+                continue
+            pdb_id = line[:4]
+            if counter == pdb_index:
+                pdb = pdb_id
+                break
+            counter +=1
 
+    print("Process", pdb_index, "selected complex", pdb)
 
+    # setup
+    r = Runner(
+        pdbbind_path.as_posix(), 
+        pdb, 
+        ['xml_protocols/docking_std.xml', 'xml_protocols/docking_perturb.xml'], 
+        zarr_path=zarr_path.as_posix()
+    )
 
-    with open("run.pickle", 'wb') as f:
-        pickle.dump(features, f)
-
-    #print(r.complex_results)
-
-
+    # dock
+    r.run(
+        n_relax=n_relax, 
+        n_relax_ligaway=n_relax_ligaway, 
+        n_dock=n_dock
+    )
 
 if __name__ == '__main__':
     import argparse
@@ -36,9 +48,21 @@ if __name__ == '__main__':
     parser.add_argument( "--n_relax", default=10, type=int, help='How often should the pose with ligand be relaxed. The lowest scoring pose will be used for docking.' )
     parser.add_argument( "--n_relax_ligaway", default=10, type=int, help='How often should the pose without ligand be relaxed. The lowest scoring pose will be used for docking.' )
     parser.add_argument( "--n_dock", default=150, type=int, help='How often should each docking protocol be applied to each pose.' )
+    parser.add_argument( "--zarr_store", type=pathlib.Path, help="Location of zarr store directory to save results", required=True )
+    parser.add_argument( "--pdbbind", type=pathlib.Path, help="Location of pdbbind directory", required=True )
+    parser.add_argument( "--pdb_file", type=pathlib.Path, help="Location of pdb list to dock", required=True )
+    parser.add_argument( "--pdb_index", type=int, help='Line index in pdbfile', required=True )
 
     args = parser.parse_args()
 
     pyrosetta.init(options='-in:auto_setup_metals -ex1 -ex2 -restore_pre_talaris_2013_behavior true -out:levels all:100', silent=True)
 
-    main( 'pdbbind_2020', '4f4p', args.n_relax, args.n_relax_ligaway, args.n_dock )
+    main( 
+        pdbbind_path=args.pdbbind,
+        pdb_file=args.pdb_file,
+        pdb_index=args.pdb_index,
+        n_relax=args.n_relax, 
+        n_relax_ligaway=args.n_relax_ligaway, 
+        n_dock=args.n_dock, 
+        zarr_path=args.zarr_store 
+    )
