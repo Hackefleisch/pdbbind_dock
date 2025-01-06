@@ -4,7 +4,7 @@ from Runner import Runner
 import pathlib
 
 
-def main(pdbbind_path, pdb_file, pdb_index, n_relax, n_relax_ligaway, n_dock, zarr_path):
+def main(pdbbind_path, pdb_file, pdb_index, n_relax, n_relax_ligaway, n_dock, zarr_path, protocols):
 
     # load pdbs
     pdb = ""
@@ -26,7 +26,7 @@ def main(pdbbind_path, pdb_file, pdb_index, n_relax, n_relax_ligaway, n_dock, za
     r = Runner(
         pdbbind_path.as_posix(), 
         pdb, 
-        ['xml_protocols/docking_std.xml', 'xml_protocols/docking_perturb.xml'], 
+        [p.as_posix() for p in protocols], 
         zarr_path=zarr_path.as_posix()
     )
 
@@ -52,6 +52,7 @@ if __name__ == '__main__':
     parser.add_argument( "--pdbbind", type=pathlib.Path, help="Location of pdbbind directory", required=True )
     parser.add_argument( "--pdb_file", type=pathlib.Path, help="Location of pdb list to dock", required=True )
     parser.add_argument( "--pdb_index", type=int, help='Line index in pdbfile', required=True )
+    parser.add_argument( "--protocols", nargs='+', type=pathlib.Path, help='Provide multiple Rosetta protocols to execute for docking', required=True)
 
     args = parser.parse_args()
 
@@ -64,5 +65,6 @@ if __name__ == '__main__':
         n_relax=args.n_relax, 
         n_relax_ligaway=args.n_relax_ligaway, 
         n_dock=args.n_dock, 
-        zarr_path=args.zarr_store 
+        zarr_path=args.zarr_store,
+        protocols=args.protocols,
     )
