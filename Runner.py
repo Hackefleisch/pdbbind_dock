@@ -218,7 +218,7 @@ class Runner():
         self.conformers = load_ligand(self.lig_file)
         molblock = moltomolblock(self.conformers)
         molblock = molblock.split('\n')
-        self.molblock = self.zarr_root.empty('native_sdf', shape=len(molblock), dtype=object, object_codec=numcodecs.JSON(), compressor=self.compressor)
+        self.molblock = self.zarr_root.empty('sanitized_sdf', shape=len(molblock), dtype=object, object_codec=numcodecs.JSON(), compressor=self.compressor)
         for i in range(len(molblock)):
             self.molblock[i] = molblock[i]
         mut_res, index_to_vd = rdkit_to_mutable_res(self.conformers)
