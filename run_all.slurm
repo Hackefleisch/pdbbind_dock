@@ -6,7 +6,7 @@
 #SBATCH --mem=5G
 #SBATCH --time=1-00:00:00
 #SBATCH --job-name=PDBBdock
-#SBATCH --array=0-8
+#SBATCH --array=0-19442
 
 
 module load Anaconda3/2024.02-1
