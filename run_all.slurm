@@ -14,7 +14,7 @@ conda init bash
 
 conda activate /work/mai13hsq-PDBBindDock/pdbbind_dock_env 
 
-python main.py \
+python /work/mai13hsq-PDBBindDock/pdbbind_dock/main.py \
     --n_relax 10 \
     --n_relax_ligaway 10 \
     --n_dock 150 \
