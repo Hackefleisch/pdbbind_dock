@@ -3,7 +3,9 @@ from timeit import default_timer as timer
 from pyrosetta import *
 from statistics import mean
 
-from load_ligand import load_ligand, rdkit_to_mutable_res, add_confs_to_res, mutable_res_to_res, moltomolblock
+from load_ligand import load_ligand, rdkit_to_mutable_res, add_confs_to_res, mutable_res_to_res, moltomolblock, generate_conformers, molfrommolblock
+
+from rdkit.Geometry import Point3D
 
 import zarr
 import numcodecs
@@ -25,8 +27,12 @@ class Runner():
 
         # ---       Zarr setup      ---
         self.zarr_store = zarr.DirectoryStore(zarr_path)
-        self.zarr_root = zarr.group(store=self.zarr_store, overwrite=True, path=pdb )
+        self.zarr_root = zarr.open_group(store=self.zarr_store, path=pdb,mode='a' )
         self.compressor = Blosc(cname='zstd', clevel=9, shuffle=Blosc.BITSHUFFLE)
+        self.zarr_results = self.zarr_root.require_dataset( pdb, shape=1, dtype=object, object_codec=numcodecs.JSON(), compressor=self.compressor )
+        self.results = self.zarr_results[0]
+        if self.results == 0:
+            self.results = {}
 
         # ---       Protocol loading      ---
         # should be a dictionary linking a name to a protocol
@@ -38,7 +44,7 @@ class Runner():
         # ---       Pose and conformer loading      ---
         self.poses = {
             # unchanged pose from pdb file
-            'pose' : rosetta.core.pose.Pose(),
+            'pose' : None,
             # relaxed pose with all cofactors
             'pose_relax' : None,
             # relaxed pose with ligand moved outside of pocket before relax
@@ -52,13 +58,10 @@ class Runner():
 
         # Conformers are stored in case someone wants to analyse available conformers during docking
         self.conformers = None
-        # Maps from atom name used by Rosetta to RDKit mol index. This should help to recover the rdkit mol with docked coordinates. One of the mols saved in self.conformers should be used
-        self.atmname_to_idx = self.zarr_root.empty('atmname_to_idx', shape=1, dtype=object, object_codec=numcodecs.JSON(), compressor=self.compressor)
-
+        
         # ---       Store pose results      ---
         # The ligaway pdb records differ from the poses. The ligands remain moved away from protein in the pdb, but are returned to their original location in the pose
         # this is important for docking, since the initial ligand position is the start position
-        self.complex_results = self.zarr_root.create_group('complex_results')
         self.n_relax = {
             'pose' : 0,
             'pose_relax' : 10,
@@ -73,7 +76,6 @@ class Runner():
         #       - raw energy terms
         #       - rmsd to crystal, crystal relax, lowest energy run results, lowest i delta run results
         #       - runtime
-        self.docking_results = self.zarr_root.create_group('docking_results')
 
     def run(self, n_relax, n_relax_ligaway, n_dock):
         total_start = timer()
@@ -83,12 +85,25 @@ class Runner():
         self.load_poses()
         self.store_poses()
 
+        if 'docking_results' not in self.results:
+            self.results[ 'docking_results' ] = {}
+
         if n_dock > 0:
             for protocol_name, protocol in self.protocols.items():
                 for pose_name, pose in self.poses.items():
                     # run protocols
                     run_start = timer()
                     run_name = protocol_name + "_" + pose_name
+                    docked_results = 0
+                    if run_name in self.results['docking_results']:
+                        docked_results = len( self.results['docking_results'][ run_name ] )
+                        print("Found", docked_results, "results for", run_name)
+                        if docked_results >= n_dock:
+                            print("No docking required.")
+                            continue
+                        else:
+                            print("More docking runs are needed. Overwriting old results...")
+                    self.results['docking_results'][ run_name ] = []
                     print("Start", n_dock, "repeats of", run_name)
                     result_poses = []
                     result_times = []
@@ -116,12 +131,12 @@ class Runner():
                     self.input_ligand_rmsd.set_comparison_pose(pose)
                     self.best_score_ligand_rmsd.set_comparison_pose(best_score_pose)
                     self.best_idelta_ligand_rmsd.set_comparison_pose(best_idelta_pose)
-                    results = self.docking_results.empty(run_name, shape=n_dock, dtype=object, object_codec=numcodecs.JSON(), compressor=self.compressor)
                     compressions = []
                     for i in range(len(result_poses)):
                         result, compression = self.store_docking_result(pose_name, result_poses[i], result_times[i])
-                        results[i] = result
+                        self.results['docking_results'][ run_name ].append( result )
                         compressions.append(compression)
+                    self.zarr_results[0] = self.results
 
                     run_end = timer()
                     print("\tFinished docking in", f'{(run_end - run_start)/60:.4f}', "minutes")
@@ -158,7 +173,7 @@ class Runner():
 
         # saving pdb string deltas
         pdb_stringarr = self.pose_to_stringarr(result_pose)
-        orig_stringarr = self.complex_results[input_pose_name][0]['pdb_string_arr']
+        orig_stringarr = self.results['complex_results'][input_pose_name]['pdb_string_arr']
         for i,line in enumerate(pdb_stringarr):
             if line != orig_stringarr[i]:
                 results['pdb_string_delta'][i] = line
@@ -207,31 +222,61 @@ class Runner():
             term = str(rosetta.core.scoring.ScoreType(i)).split('.')[-1]
             if abs(weight) > 1e-100:
                 self.score_weights[ term ] = weight
-        
-    def load_poses(self):
+
+    def load_pose(self, name):
+
+        pose = rosetta.core.pose.Pose()
+
+        if 'sanitized_sdf' in self.results:
+            print("Found cleaned sdf in results, skip loading pdbbind original.")
+            molblock = "\n".join(self.results['sanitized_sdf'])
+            mol = molfrommolblock(molblock)
+        else:
+            mol = load_ligand(self.lig_file)
+
         pdb_string = ""
-        with open(self.pdb_file) as file:
-            pdb_string = file.read()
+        if 'complex_results' in self.results and name in self.results['complex_results'] and self.results['complex_results'][name] != None:
+            print("Found generated structure", name, "in results.")
+            pdb_string_arr = self.results['complex_results'][name]['pdb_string_arr']
+            for line in pdb_string_arr:
+                if 'ligaway' not in name and line[:6] == 'HETATM' and line[17:20] == 'UNK':
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    name = line[12:16]
+                    mol.GetConformer().SetAtomPosition(self.results['atmname_to_idx'][name], Point3D(x,y,z))
+                else:
+                    pdb_string += line + '\n'
+        else:
+            if self.poses['pose'] != None:
+                return self.poses['pose'].clone()
+            with open(self.pdb_file) as file:
+                pdb_string = file.read()
 
-        rosetta.core.import_pose.pose_from_pdbstring(self.poses['pose'], pdb_string)
+        rosetta.core.import_pose.pose_from_pdbstring(pose, pdb_string)
+            
+        self.conformers = generate_conformers( mol )
 
-        self.conformers = load_ligand(self.lig_file)
-        molblock = moltomolblock(self.conformers)
-        molblock = molblock.split('\n')
-        self.molblock = self.zarr_root.empty('sanitized_sdf', shape=len(molblock), dtype=object, object_codec=numcodecs.JSON(), compressor=self.compressor)
-        for i in range(len(molblock)):
-            self.molblock[i] = molblock[i]
+        if 'sanitized_sdf' not in self.results:
+            molblock = moltomolblock(self.conformers)
+            self.results['sanitized_sdf'] = molblock.split('\n')
         mut_res, index_to_vd = rdkit_to_mutable_res(self.conformers)
         self.generate_rosetta_atmname_to_index(index_to_vd, mut_res)
         mut_res = add_confs_to_res(self.conformers, mut_res, index_to_vd)
         res = mutable_res_to_res(mut_res)
 
-        self.poses['pose'].append_residue_by_jump( res, 1, "", "", True )
-        self.poses['pose'].pdb_info().chain( self.poses['pose'].total_residue(), 'X' )
-        self.poses['pose'].update_pose_chains_from_pdb_chains()
+        pose.append_residue_by_jump( res, 1, "", "", True )
+        pose.pdb_info().chain( pose.total_residue(), 'X' )
+        pose.update_pose_chains_from_pdb_chains()
 
-        self.poses['pose_relax'] = self.poses['pose'].clone()
-        self.poses['pose_relax_ligaway'] = self.poses['pose'].clone()
+        return pose
+
+        
+    def load_poses(self):
+
+        self.poses['pose'] = self.load_pose('pose')
+        self.poses['pose_relax'] = self.load_pose('pose_relax')
+        self.poses['pose_relax_ligaway'] = self.load_pose('pose_relax_ligaway')
 
         res_selector = rosetta.core.select.residue_selector.ResidueIndexSelector(self.poses['pose'].total_residue())
         self.crystal_ligand_rmsd.set_residue_selector(res_selector)
@@ -241,15 +286,16 @@ class Runner():
 
         self.crystal_ligand_rmsd.set_comparison_pose(self.poses['pose'])
 
-        # generate original pdb string for reference
-        self.orig_pdb_string = self.pose_to_stringarr(self.poses['pose'])
-
     def generate_rosetta_atmname_to_index(self, index_to_vd, mut_res):
+        if 'atmname_to_idx' in self.results:
+            print("Map between rdkit and rosetta atoms exists, skipping generation.")
+            return
+        
         atmname_to_idx = {}
         for idx, vd in index_to_vd.items():
             name = mut_res.atom_name(vd)
             atmname_to_idx[ name ] = idx
-        self.atmname_to_idx[0] = atmname_to_idx
+        self.results[ 'atmname_to_idx' ] = atmname_to_idx
 
     def store_poses(self):
         for name, pose in self.poses.items():
@@ -259,7 +305,9 @@ class Runner():
             #self.poses[name].dump_pdb(name + ".pdb")
 
     def process_pose(self, in_pose, name, relax, move_ligand):
-        results = self.complex_results.empty(name, shape=1, dtype=object, object_codec=numcodecs.JSON(), compressor=self.compressor)
+        if 'complex_results' in self.results and name in self.results['complex_results'] and self.results['complex_results'][name] != None:
+            print("Found entry in loaded results. Skip processing of", name)
+            return
 
         tmp_results = {
             'pdb_string_arr' : [],
@@ -363,7 +411,10 @@ class Runner():
         print("\tProcessing this pose took", f'{tmp_results["prepare_time"]/60:.4f}', 'minutes')
 
         self.poses[name] = in_pose
-        results[0] = tmp_results
+        if 'complex_results' not in self.results:
+            self.results['complex_results'] = {}
+        self.results['complex_results'][name] = tmp_results
+        self.zarr_results[0] = self.results
 
     def pose_to_stringarr(self, pose):
         pu = rosetta.core.io.pose_to_sfr.PoseToStructFileRepConverter()

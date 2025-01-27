@@ -3,13 +3,9 @@ from rdkit.Chem import AllChem
 
 from pyrosetta import *
 
-def load_ligand(lig_file, nconf=0):
-
-    sdf_supplier = Chem.SDMolSupplier(lig_file, sanitize=True, removeHs=True)
-    orig_mol = sdf_supplier[0]
-    nrotbonds = Chem.rdMolDescriptors.CalcNumRotatableBonds(orig_mol, strict=True)
-    mol = Chem.AddHs(orig_mol)
-    AllChem.ConstrainedEmbed(mol, orig_mol)
+def generate_conformers(mol, nconf=0):
+    mol_noH = Chem.RemoveHs( mol )
+    nrotbonds = Chem.rdMolDescriptors.CalcNumRotatableBonds(mol_noH, strict=True)
 
     # nconf logic adapted from Jean-Paul Ebejer's presentation
 	# at the London RDKit User General Meeting
@@ -25,6 +21,16 @@ def load_ligand(lig_file, nconf=0):
 
     AllChem.EmbedMultipleConfs(mol, numConfs=nconf, clearConfs = False, maxAttempts = 30)
     AllChem.AlignMolConformers(mol)
+
+    return mol
+
+
+def load_ligand(lig_file):
+
+    sdf_supplier = Chem.SDMolSupplier(lig_file, sanitize=True, removeHs=True)
+    orig_mol = sdf_supplier[0]
+    mol = Chem.AddHs(orig_mol)
+    AllChem.ConstrainedEmbed(mol, orig_mol)
 
     return mol
 
@@ -131,3 +137,6 @@ def mutable_res_to_res(mutable_res):
 
 def moltomolblock(mol):
     return Chem.MolToMolBlock(mol, kekulize = False, confId=0)
+
+def molfrommolblock(molblock):
+    return Chem.MolFromMolBlock(molblock, sanitize=False, removeHs=False)
