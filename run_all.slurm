@@ -19,7 +19,7 @@ python /work/mai13hsq-PDBBindDock/pdbbind_dock/main.py \
     --n_relax 10 \
     --n_relax_ligaway 10 \
     --n_dock 150 \
-    --zarr_store /work/mai13hsq-PDBBindDock/results.zarr \
+    --zarr_store /work/mai13hsq-PDBBindDock/formatted_results.zarr \
     --pdbbind /work/mai13hsq-PDBBindDock/pdbbind_2020 \
     --pdb_file /work/mai13hsq-PDBBindDock/pdbbind_2020/index/INDEX_structure.2020 \
     --pdb_index $SLURM_ARRAY_TASK_ID \
