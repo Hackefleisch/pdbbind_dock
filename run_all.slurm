@@ -3,10 +3,10 @@
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=5G
-#SBATCH --time=1-00:00:00
+#SBATCH --mem=20G
+#SBATCH --time=2-00:00:00
 #SBATCH --job-name=PDBBdock
-#SBATCH --array=0-19442
+#SBATCH --array=0-10000
 
 
 module load Anaconda3/2024.02-1
