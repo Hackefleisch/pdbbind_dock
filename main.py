@@ -6,6 +6,8 @@ import pathlib
 
 def main(pdbbind_path, pdb_file, pdb_index, n_relax, n_relax_ligaway, n_dock, zarr_path, protocols):
 
+    print("Loading pdb codes...", flush=True)
+
     # load pdbs
     pdb = ""
     counter = 0
@@ -20,7 +22,7 @@ def main(pdbbind_path, pdb_file, pdb_index, n_relax, n_relax_ligaway, n_dock, za
                 break
             counter +=1
 
-    print("Process", pdb_index, "selected complex", pdb)
+    print("Process", pdb_index, "selected complex", pdb, flush=True)
 
     # setup
     r = Runner(

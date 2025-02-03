@@ -58,7 +58,7 @@ class Runner():
 
         # Conformers are stored in case someone wants to analyse available conformers during docking
         self.conformers = None
-        
+
         # ---       Store pose results      ---
         # The ligaway pdb records differ from the poses. The ligands remain moved away from protein in the pdb, but are returned to their original location in the pose
         # this is important for docking, since the initial ligand position is the start position
@@ -104,7 +104,7 @@ class Runner():
                         else:
                             print("More docking runs are needed. Overwriting old results...")
                     self.results['docking_results'][ run_name ] = []
-                    print("Start", n_dock, "repeats of", run_name)
+                    print("Start", n_dock, "repeats of", run_name, flush=True)
                     result_poses = []
                     result_times = []
                     best_score = 99999.9
@@ -142,7 +142,7 @@ class Runner():
                     print("\tFinished docking in", f'{(run_end - run_start)/60:.4f}', "minutes")
                     print("\tBest score:", f'{best_score:.4f}', "RMSD to input:", f'{self.input_ligand_rmsd.calculate(best_score_pose):.4f}', "RMSD to crystal:", f'{self.crystal_ligand_rmsd.calculate(best_score_pose):.4f}')
                     print("\tBest idelta:", f'{best_idelta:.4f}', "RMSD to input:", f'{self.input_ligand_rmsd.calculate(best_idelta_pose):.4f}', "RMSD to crystal:", f'{self.crystal_ligand_rmsd.calculate(best_idelta_pose):.4f}')
-                    print("\tAverage pdb size reduction:", f'{100*mean(compressions):.4f}%')
+                    print("\tAverage pdb size reduction:", f'{100*mean(compressions):.4f}%', flush=True)
 
                     #best_idelta_pose.dump_pdb(run_name + "_idelta.pdb")
                     #best_score_pose.dump_pdb(run_name + "_score.pdb")
@@ -150,7 +150,7 @@ class Runner():
             print("[WARNING] No docking runs are conducted. Set n_runs > 0 to change that.")
 
         total_end = timer()
-        print("Finished processing", self.pdb, "in", f'{(total_end - total_start)/60:.4f}', "minutes")
+        print("Finished processing", self.pdb, "in", f'{(total_end - total_start)/60:.4f}', "minutes", flush=True)
 
     def store_docking_result(self, input_pose_name, result_pose, time):
         #       - pose string delta
@@ -299,7 +299,7 @@ class Runner():
 
     def store_poses(self):
         for name, pose in self.poses.items():
-            print("Start processing pose:", name)
+            print("Start processing pose:", name, flush=True)
             move_ligand = 'ligaway' in name
             self.process_pose(pose, name, relax=self.n_relax[name], move_ligand=move_ligand)
             #self.poses[name].dump_pdb(name + ".pdb")
@@ -355,7 +355,7 @@ class Runner():
                 scores.append(score)
                 if score <= min(scores):
                     best_pose = work_pose
-                print("\t\tFinished relax", i+1, "of", max_relax, "- Score:", f'{score:.4f}', "RMSD:", f'{rmsd:.4f}')
+                print("\t\tFinished relax", i+1, "of", max_relax, "- Score:", f'{score:.4f}', "RMSD:", f'{rmsd:.4f}', flush=True)
 
             in_pose = best_pose
             # score_distribution
@@ -408,7 +408,7 @@ class Runner():
 
         end = timer()
         tmp_results['prepare_time'] = end - start
-        print("\tProcessing this pose took", f'{tmp_results["prepare_time"]/60:.4f}', 'minutes')
+        print("\tProcessing this pose took", f'{tmp_results["prepare_time"]/60:.4f}', 'minutes', flush=True)
 
         self.poses[name] = in_pose
         if 'complex_results' not in self.results:
