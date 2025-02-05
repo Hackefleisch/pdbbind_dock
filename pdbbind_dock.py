@@ -124,9 +124,9 @@ from load_ligand import rdkit_to_mutable_res, mutable_res_to_res
 pyrosetta.init(options='-in:auto_setup_metals -ex1 -ex2 -restore_pre_talaris_2013_behavior true -out:levels all:300', silent=False)
 
 pose = rosetta.core.pose.Pose()
-rosetta.core.import_pose.pose_from_pdbstring(pose, pr.pdb)
+rosetta.core.import_pose.pose_from_pdbstring(pose, perturb_relax_4.pdb)
 
-mut_res, _ = rdkit_to_mutable_res(pr.rdkit_mol)
+mut_res, _ = rdkit_to_mutable_res(perturb_relax_4.rdkit_mol)
 res = mutable_res_to_res(mut_res)
 
 pose.append_residue_by_jump( res, 1, "", "", True )
@@ -136,8 +136,8 @@ pose.update_pose_chains_from_pdb_chains()
 xml_objects = rosetta.protocols.rosetta_scripts.XmlObjects.create_from_file('xml_protocols/docking_std.xml')
 scfx = xml_objects.get_score_function("hard_rep")
 
-print(scfx(pose), pr.total_score)
+print(scfx(pose), perturb_relax_4.total_score)
 
-pose.dump_pdb("rosetta.pdb")
-pr.write_pdb("test.pdb")
+#pose.dump_pdb("rosetta.pdb")
+#pr.write_pdb("test.pdb")
 """
