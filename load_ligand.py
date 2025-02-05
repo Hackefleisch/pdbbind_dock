@@ -1,12 +1,17 @@
 from rdkit import Chem
+from rdkit.Chem import Lipinski
 from rdkit.Chem import AllChem
 
 from pyrosetta import *
 
 def generate_conformers(mol, nconf=0):
-    mol_noH = Chem.RemoveHs( mol )
-    nrotbonds = Chem.rdMolDescriptors.CalcNumRotatableBonds(mol_noH, strict=True)
-
+    try:
+        mol_noH = Chem.RemoveHs( mol )
+        nrotbonds = Lipinski.NumRotatableBonds(mol_noH)
+    except:
+        print("Ligand is most likely unable to be kekulized. Generating 100 conformers as default")
+        nconf = 100
+    
     # nconf logic adapted from Jean-Paul Ebejer's presentation
 	# at the London RDKit User General Meeting
 	# http://rdkit.org/UGM/2012/Ebejer_20110926_RDKit_1stUGM.pdf
@@ -17,6 +22,7 @@ def generate_conformers(mol, nconf=0):
         elif nrotbonds >= 8:
             nconf = 199
     else:
+        # since the initial conformation will be kept
         nconf -= 1
 
     AllChem.EmbedMultipleConfs(mol, numConfs=nconf, clearConfs = False, maxAttempts = 30)
@@ -27,8 +33,12 @@ def generate_conformers(mol, nconf=0):
 
 def load_ligand(lig_file):
 
-    sdf_supplier = Chem.SDMolSupplier(lig_file, sanitize=True, removeHs=True)
-    orig_mol = sdf_supplier[0]
+    filetype = lig_file.split('.')[-1]
+    if filetype == "sdf":
+        sdf_supplier = Chem.SDMolSupplier(lig_file, sanitize=True, removeHs=True)
+        orig_mol = sdf_supplier[0]
+    elif filetype == "mol2":
+        orig_mol = Chem.MolFromMol2File(lig_file, sanitize=True, removeHs=True)
     mol = Chem.AddHs(orig_mol)
     AllChem.ConstrainedEmbed(mol, orig_mol)
 
