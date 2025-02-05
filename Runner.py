@@ -228,11 +228,16 @@ class Runner():
         pose = rosetta.core.pose.Pose()
 
         if 'sanitized_sdf' in self.results:
-            print("Found cleaned sdf in results, skip loading pdbbind original.")
+            print("Found cleaned sdf in results, skip loading pdbbind original for " + name)
             molblock = "\n".join(self.results['sanitized_sdf'])
             mol = molfrommolblock(molblock)
         else:
-            mol = load_ligand(self.lig_file)
+            try:
+                mol = load_ligand(self.lig_file)
+            except:
+                print("Unable to load sdf. Trying mol2...")
+                mol = load_ligand( self.lig_file[:-3] + "mol2" )
+            print("Loaded ligand file for " + name + ". Storing it in results.")
 
         pdb_string = ""
         if 'complex_results' in self.results and name in self.results['complex_results'] and self.results['complex_results'][name] != None:
@@ -259,6 +264,10 @@ class Runner():
 
         if 'sanitized_sdf' not in self.results:
             molblock = moltomolblock(self.conformers)
+            re_mol = molfrommolblock( molblock )
+            if re_mol == None:
+                print( "Can't convert molblock to mol:" )
+                raise TypeError
             self.results['sanitized_sdf'] = molblock.split('\n')
         mut_res, index_to_vd = rdkit_to_mutable_res(self.conformers)
         self.generate_rosetta_atmname_to_index(index_to_vd, mut_res)
