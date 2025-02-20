@@ -68,6 +68,8 @@ class PDBcomplex:
         self.prepare_time = result_dict[ 'prepare_time' ]
         self.rmsd_to_crystal = result_dict[ 'rmsd_to_crystal' ]
         self.score_distribution = result_dict[ 'score_distribution' ]
+
+        self.nres = None
         
     def write_mol(self, filename):
         with Chem.SDWriter(filename) as f:
@@ -76,23 +78,35 @@ class PDBcomplex:
 
     def write_pdb(self, filename):
         with open(filename, 'w') as file:
-            file.write(self.pdb)
+            file.write(self.pdb)   
+
+    def get_n_res(self) -> int:
+        if self.nres == None:
+            index = self.pdb.find("HETNAM     UNK")
+            self.nres = int(self.pdb[index+16:index+20])-1
+        return self.nres
 
 class PDBresult:
 
     def __init__(self, zarr_store, pdb_id):
         
         self.results = zarr_store[pdb_id][pdb_id][0]
+
+        self.healthy = False
+        if self.results == 0:
+            return
+        self.healthy = True
+
         self.pdb_id = pdb_id
         self.sanitized_molblock = "\n".join( self.results[ 'sanitized_sdf' ] )
         self.atmname_to_index = self.results[ 'atmname_to_idx' ]
 
-    def get_complex(self, label):
+    def get_complex(self, label) -> PDBcomplex:
         if label not in self.results[ 'complex_results' ]:
             raise KeyError( label + " not found in complex_results for " + self.pdb_id + ". Available keys: " + ", ".join(list( self.results[ 'complex_results' ].keys()) ) )
         return PDBcomplex( self.results[ 'complex_results' ][ label ], self.atmname_to_index, self.sanitized_molblock )
 
-    def get_run(self, label, index):
+    def get_run(self, label, index) -> PDBrun:
         if label not in self.results[ 'docking_results' ]:
             raise KeyError( label + " not found in docking_results for " + self.pdb_id + ". Available keys: " + ", ".join(list( self.results[ 'docking_results' ].keys()) ) )
         if index < 0 or index >= len( self.results[ 'docking_results' ][ label ] ):
@@ -100,44 +114,46 @@ class PDBresult:
         input_pdb_structure = self.results[ 'docking_results' ][ label ][ index ][ 'input_pose_name' ]
         return PDBrun( self.results[ 'docking_results' ][ label ][ index ], self.atmname_to_index, self.sanitized_molblock, self.results[ 'complex_results' ][ input_pdb_structure ][ 'pdb_string_arr' ] )
 
-store = zarr.open('formatted_results.zarr', 'r')
-pdb_entry = PDBresult( store, '184l' )
-pose_relax = pdb_entry.get_complex('pose_relax')
-print(pose_relax.idelta_score)
+if __name__ == '__main__':
 
-perturb_relax_4 = pdb_entry.get_run( 'docking_perturb_pose_relax', 4 )
-print(perturb_relax_4.idelta_score)
+    store = zarr.open('formatted_results.zarr', 'r')
+    pdb_entry = PDBresult( store, '184l' )
+    pose_relax = pdb_entry.get_complex('pose_relax')
+    print(pose_relax.idelta_score)
 
-pose_relax_ligaway = pdb_entry.get_complex( 'pose_relax_ligaway' )
-real_delta = {}
-for key in pose_relax_ligaway.raw_energies.keys():
-    real_delta[key] = pose_relax.raw_energies[key] - pose_relax_ligaway.raw_energies[key]
+    perturb_relax_4 = pdb_entry.get_run( 'docking_perturb_pose_relax', 4 )
+    print(perturb_relax_4.idelta_score)
 
-for key in real_delta.keys():
-    if real_delta[key] != 0.0:
-        print(key, real_delta[key], pose_relax.raw_delta_energies[key])
+    pose_relax_ligaway = pdb_entry.get_complex( 'pose_relax_ligaway' )
+    real_delta = {}
+    for key in pose_relax_ligaway.raw_energies.keys():
+        real_delta[key] = pose_relax.raw_energies[key] - pose_relax_ligaway.raw_energies[key]
 
-"""
-from pyrosetta import *
-from load_ligand import rdkit_to_mutable_res, mutable_res_to_res
+    for key in real_delta.keys():
+        if real_delta[key] != 0.0:
+            print(key, real_delta[key], pose_relax.raw_delta_energies[key])
 
-pyrosetta.init(options='-in:auto_setup_metals -ex1 -ex2 -restore_pre_talaris_2013_behavior true -out:levels all:300', silent=False)
+    """
+    from pyrosetta import *
+    from load_ligand import rdkit_to_mutable_res, mutable_res_to_res
 
-pose = rosetta.core.pose.Pose()
-rosetta.core.import_pose.pose_from_pdbstring(pose, perturb_relax_4.pdb)
+    pyrosetta.init(options='-in:auto_setup_metals -ex1 -ex2 -restore_pre_talaris_2013_behavior true -out:levels all:300', silent=False)
 
-mut_res, _ = rdkit_to_mutable_res(perturb_relax_4.rdkit_mol)
-res = mutable_res_to_res(mut_res)
+    pose = rosetta.core.pose.Pose()
+    rosetta.core.import_pose.pose_from_pdbstring(pose, perturb_relax_4.pdb)
 
-pose.append_residue_by_jump( res, 1, "", "", True )
-pose.pdb_info().chain( pose.total_residue(), 'X' )
-pose.update_pose_chains_from_pdb_chains()
+    mut_res, _ = rdkit_to_mutable_res(perturb_relax_4.rdkit_mol)
+    res = mutable_res_to_res(mut_res)
 
-xml_objects = rosetta.protocols.rosetta_scripts.XmlObjects.create_from_file('xml_protocols/docking_std.xml')
-scfx = xml_objects.get_score_function("hard_rep")
+    pose.append_residue_by_jump( res, 1, "", "", True )
+    pose.pdb_info().chain( pose.total_residue(), 'X' )
+    pose.update_pose_chains_from_pdb_chains()
 
-print(scfx(pose), perturb_relax_4.total_score)
+    xml_objects = rosetta.protocols.rosetta_scripts.XmlObjects.create_from_file('xml_protocols/docking_std.xml')
+    scfx = xml_objects.get_score_function("hard_rep")
 
-#pose.dump_pdb("rosetta.pdb")
-#pr.write_pdb("test.pdb")
-"""
+    print(scfx(pose), perturb_relax_4.total_score)
+
+    #pose.dump_pdb("rosetta.pdb")
+    #pr.write_pdb("test.pdb")
+    """
