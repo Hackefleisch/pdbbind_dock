@@ -47,9 +47,16 @@ class PDBrun:
             f.SetKekulize(False)
             f.write(self.rdkit_mol)
 
-    def write_pdb(self, filename):
-        with open(filename, 'w') as file:
-            file.write(self.pdb)
+    def write_pdb(self, filename, ligchain=None):
+        if ligchain == None:
+            with open(filename, 'w') as file:
+                file.write(self.pdb)
+        else:
+            with open(filename, 'w') as file:
+                for line in self.pdb.split('\n'):
+                    if line[0:6] == 'HETATM' and line[17:20] == 'UNK':
+                        line = line[:21] + ligchain + line[22:]
+                    file.write(line + '\n')
 
 class PDBcomplex:
 
@@ -76,9 +83,16 @@ class PDBcomplex:
             f.SetKekulize(False)
             f.write(self.rdkit_mol)
 
-    def write_pdb(self, filename):
-        with open(filename, 'w') as file:
-            file.write(self.pdb)   
+    def write_pdb(self, filename, ligchain=None):
+        if ligchain == None:
+            with open(filename, 'w') as file:
+                file.write(self.pdb)
+        else:
+            with open(filename, 'w') as file:
+                for line in self.pdb.split('\n'):
+                    if line[0:6] == 'HETATM' and line[17:20] == 'UNK':
+                        line = line[:21] + ligchain + line[22:]
+                    file.write(line + '\n')
 
     def get_n_res(self) -> int:
         if self.nres == None:
@@ -111,8 +125,17 @@ class PDBresult:
             raise KeyError( label + " not found in docking_results for " + self.pdb_id + ". Available keys: " + ", ".join(list( self.results[ 'docking_results' ].keys()) ) )
         if index < 0 or index >= len( self.results[ 'docking_results' ][ label ] ):
             raise KeyError( "Index " + str(index) + " is out of bound for " + self.pdb_id + " protocol " + label + ": [0," + str(len( self.results[ 'docking_results' ][ label ] ) ) + "]" )
+        if self.results[ 'docking_results' ][ label ][ index ] == None:
+            raise ValueError( "Index " + str(index) + " is None for " + self.pdb_id + " protocol " + label )
         input_pdb_structure = self.results[ 'docking_results' ][ label ][ index ][ 'input_pose_name' ]
         return PDBrun( self.results[ 'docking_results' ][ label ][ index ], self.atmname_to_index, self.sanitized_molblock, self.results[ 'complex_results' ][ input_pdb_structure ][ 'pdb_string_arr' ] )
+
+    def n_runs( self, label ) -> int:
+        try:
+            size = len( self.results[ 'docking_results' ][ label ] )
+        except KeyError:
+            size = 0
+        return size
 
 if __name__ == '__main__':
 
