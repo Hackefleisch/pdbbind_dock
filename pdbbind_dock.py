@@ -6,6 +6,11 @@ from rdkit.Geometry import Point3D
 import copy
 
 def pdb_result( orig_pdb_strarr, update_pdb_strarr ):
+    """
+    This function generates a full pdb string from original and update.
+    The original pdb is an array where every entry is a line from the original pdb file.
+    The update is a dictionary with line numbers as keys and it holds replacement to the original pdb for each line that changed during docking.
+    """
         
     result = copy.deepcopy( orig_pdb_strarr )
     for idx, upd in update_pdb_strarr.items():
@@ -13,6 +18,9 @@ def pdb_result( orig_pdb_strarr, update_pdb_strarr ):
     return "\n".join(result)
     
 def mol_result( rdkit_mol, pdb_str, atmname_to_index ):
+    """
+    This function uses the sanitized rdkit sdf and a pdb to extract a ligand conformer and add it to the rdkit mol object.
+    """
 
     for line in pdb_str.split('\n'):
         if line[:6] == 'HETATM' and line[17:20] == 'UNK':
@@ -25,6 +33,9 @@ def mol_result( rdkit_mol, pdb_str, atmname_to_index ):
     return rdkit_mol
 
 class PDBrun:
+    """
+    This object is used to have data for each docking run readily available
+    """
 
     def __init__(self, result_dict, atmname_to_index, native_molblock, input_pdb):
         
@@ -59,6 +70,9 @@ class PDBrun:
                     file.write(line + '\n')
 
 class PDBcomplex:
+    """
+    This object is used to have all results for prepared input complexes (e.g. crystal, relax, ligaway) available
+    """
 
     def __init__(self, result_dict, atmname_to_index, native_molblock ):
         
@@ -101,6 +115,9 @@ class PDBcomplex:
         return self.nres
 
 class PDBresult:
+    """
+    This class organizes all results for a single pdb label
+    """
 
     def __init__(self, zarr_store, pdb_id):
         
@@ -139,7 +156,7 @@ class PDBresult:
 
 if __name__ == '__main__':
 
-    store = zarr.open('formatted_results.zarr', 'r')
+    store = zarr.open('/media/data/pdbbind_dock/formatted_results.zarr', 'r')
     pdb_entry = PDBresult( store, '184l' )
     pose_relax = pdb_entry.get_complex('pose_relax')
     print(pose_relax.idelta_score)
