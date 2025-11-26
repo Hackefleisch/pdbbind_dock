@@ -126,6 +126,8 @@ class PDBresult:
         self.healthy = False
         if self.results == 0:
             return
+        if 'docking_results' not in self.results or 'complex_results' not in self.results:
+            return
         self.healthy = True
 
         self.pdb_id = pdb_id
