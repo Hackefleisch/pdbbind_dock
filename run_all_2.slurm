@@ -18,7 +18,7 @@ conda activate /work/mai13hsq-PDBBindDock/pdbbind_dock_env
 python /work/mai13hsq-PDBBindDock/pdbbind_dock/main.py \
     --n_relax 10 \
     --n_relax_ligaway 10 \
-    --n_dock 150 \
+    --n_dock 300 \
     --zarr_store /work/mai13hsq-PDBBindDock/formatted_results.zarr \
     --pdbbind /work/mai13hsq-PDBBindDock/pdbbind_2020 \
     --pdb_file /work/mai13hsq-PDBBindDock/pdbbind_2020/index/INDEX_structure.2020 \
