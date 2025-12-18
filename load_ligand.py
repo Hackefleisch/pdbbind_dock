@@ -25,7 +25,10 @@ def generate_conformers(mol, nconf=0):
         # since the initial conformation will be kept
         nconf -= 1
 
-    AllChem.EmbedMultipleConfs(mol, numConfs=nconf, clearConfs = False, maxAttempts = 30)
+
+    embed_params = AllChem.ETKDGv3()
+    embed_params.clearConfs = False
+    AllChem.EmbedMultipleConfs(mol, nconf, embed_params)
     AllChem.AlignMolConformers(mol)
 
     return mol
@@ -35,13 +38,117 @@ def load_ligand(lig_file):
 
     filetype = lig_file.split('.')[-1]
     if filetype == "sdf":
-        sdf_supplier = Chem.SDMolSupplier(lig_file, sanitize=True, removeHs=True)
+        sdf_supplier = Chem.SDMolSupplier(lig_file, sanitize=False, removeHs=False)
         orig_mol = sdf_supplier[0]
     elif filetype == "mol2":
-        orig_mol = Chem.MolFromMol2File(lig_file, sanitize=True, removeHs=True)
-    mol = Chem.AddHs(orig_mol)
-    AllChem.ConstrainedEmbed(mol, orig_mol)
+        orig_mol = Chem.MolFromMol2File(lig_file, sanitize=False, removeHs=False)
+    #mol = Chem.AddHs(orig_mol)
+    #AllChem.ConstrainedEmbed(mol, orig_mol)
 
+    mol = reprotonate_mol(orig_mol)
+
+    return mol
+
+def reprotonate_mol(mol):
+    """
+    Reprotonates an RDKit molecule using logic ported from Rosetta's C++ reprotonate_rdmol written by Rocco Moretti.
+    Preserves 3D coordinates of heavy atoms and generates coordinates for new Hydrogens.
+    
+    Args:
+        mol (rdkit.Chem.Mol): The input molecule (with 3D coords).
+        
+    Returns:
+        rdkit.Chem.Mol: The reprotonated molecule.
+    """
+    
+    # 1. Remove hydrogens if needed
+    mol = Chem.RemoveHs(mol, sanitize=False)
+
+    # 2. Soft Sanitize
+    mol.ClearComputedProps()
+    Chem.Cleanup(mol)
+    mol.UpdatePropertyCache(strict=False)
+    Chem.GetSymmSSSR(mol) # Computes ring info (symmetrizeSSSR)
+
+    # 3. Remove Excess Protons
+    # Removes hydrogens that contribute to a positive formal charge
+    for atom in mol.GetAtoms():
+        charge = atom.GetFormalCharge()
+        if charge > 0:
+            # Check explicit Hs
+            n_explicit = atom.GetNumExplicitHs()
+            if n_explicit > 0:
+                delta = min(charge, n_explicit)
+                atom.SetNumExplicitHs(n_explicit - delta)
+                atom.SetFormalCharge(charge - delta)
+                atom.UpdatePropertyCache(strict=False) # Reset implicit/explicit counts
+            
+            # Re-check charge after explicit adjustment to handle residual implicits
+            charge = atom.GetFormalCharge()
+            n_implicit = atom.GetNumImplicitHs()
+            if charge > 0 and n_implicit > 0:
+                delta = min(charge, n_implicit)
+                atom.SetFormalCharge(charge - delta)
+                atom.UpdatePropertyCache(strict=False)
+
+    # 4. Apply Charge Transforms
+    
+    # Define the transforms (SMARTS pattern, Target Charge)
+    # Order matches the C++ static const PH_TRANSFORMS list
+    transforms = [
+        # Singly connected or Doubly connected negative oxygen
+        ("[O-1$([OD1]),$([OD2])]", 0),
+        # Negative sulfur
+        ("[S-1$([SD1]),$([SD2])]", 0),
+        # Fix up: Oxygen next to double bonded O/S
+        ("[O-0D1$(O-[*]=[O,S,o,s])]", -1),
+        # Fix up: Sulfur next to double bonded O/S
+        ("[S-0D1$(S-[*]=[O,S,o,s])]", -1),
+        # Nitrogen fixes (complicated specificity to avoid specific conjugated systems)
+        ("[N+0&!$(N=[*])&!$(N#[*])&!$(N-[*]=[*])&!$(N-[*]#[*])&!$(N-[*]:[*])]", 1),
+        # Amidine & Guanidine
+        ("[N+0D1$(N=C-[N+0])]", 1),
+        # Nitro group ylide representation
+        ("[O-0D1H1$(O-[N+]=O)]", -1)
+    ]
+
+    for smarts, target_charge in transforms:
+        pattern = Chem.MolFromSmarts(smarts)
+        if not pattern:
+            continue
+            
+        # Get all matches. Uniquify=True is default.
+        matches = mol.GetSubstructMatches(pattern)
+        
+        for match in matches:
+            # Assume the first atom in the match is the target (index 0)
+            atom = mol.GetAtomWithIdx(match[0])
+            
+            current_charge = atom.GetFormalCharge()
+            
+            # Remove explicit hydrogens if charge is being reduced
+            if target_charge < current_charge:
+                charge_delta = current_charge - target_charge
+                explicit_hs = atom.GetNumExplicitHs()
+                
+                if charge_delta < explicit_hs:
+                    atom.SetNumExplicitHs(explicit_hs - charge_delta)
+                else:
+                    atom.SetNumExplicitHs(0)
+            
+            atom.SetNoImplicit(False)
+            atom.SetFormalCharge(target_charge)
+            atom.UpdatePropertyCache(strict=False)
+
+    # 5. Final Sanitize and Add Hs
+    # This recalculates valence, aromaticity, conjugation, etc.
+    Chem.SanitizeMol(mol)
+    
+    # C++: addHs(rdmol, false, /*addCoords=*/ true)
+    # addCoords=True ensures 3D coordinates are generated for the new Hs
+    # based on the existing heavy atom geometry.
+    mol = Chem.AddHs(mol, addCoords=True)
+    
     return mol
 
 def rdkit_to_mutable_res(mol):
@@ -150,3 +257,19 @@ def moltomolblock(mol):
 
 def molfrommolblock(molblock):
     return Chem.MolFromMolBlock(molblock, sanitize=False, removeHs=False)
+
+if __name__ == '__main__':
+
+    mol = load_ligand(lig_file='pdbbind_cleaned/10gs/10gs_ligand.sdf')
+
+    mol = generate_conformers(mol)
+
+    output_filename = "reprotonated.sdf"
+    writer = Chem.SDWriter(output_filename)
+    writer.SetKekulize(False)
+    for cid in range(mol.GetNumConformers()):
+        writer.write(mol, confId=cid)
+    writer.close()
+
+    mol = load_ligand('reprotonated.sdf')
+    print(mol)
