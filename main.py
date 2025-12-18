@@ -2,6 +2,7 @@ from pyrosetta import *
 
 from Runner import Runner
 import pathlib
+import shutil
 
 
 def main(pdbbind_path, pdb_file, pdb_index, n_relax, n_relax_ligaway, n_dock, zarr_path, protocols):
@@ -55,10 +56,14 @@ if __name__ == '__main__':
     parser.add_argument( "--pdb_file", type=pathlib.Path, help="Location of pdb list to dock", required=True )
     parser.add_argument( "--pdb_index", type=int, help='Line index in pdbfile', required=True )
     parser.add_argument( "--protocols", nargs='+', type=pathlib.Path, help='Provide multiple Rosetta protocols to execute for docking', required=True)
+    parser.add_argument( "--overwrite", action='store_true', help='If set the specified zarr store will be cleared before running. Use with caution!')
 
     args = parser.parse_args()
 
     pyrosetta.init(options='-in:auto_setup_metals -ex1 -ex2 -restore_pre_talaris_2013_behavior true -out:levels all:100', silent=True)
+
+    if args.overwrite and os.path.exists(args.zarr_store):
+        shutil.rmtree(args.zarr_store)
 
     main( 
         pdbbind_path=args.pdbbind,
