@@ -143,7 +143,7 @@ class PDBresult:
         if label not in self.results[ 'docking_results' ]:
             raise KeyError( label + " not found in docking_results for " + self.pdb_id + ". Available keys: " + ", ".join(list( self.results[ 'docking_results' ].keys()) ) )
         if index < 0 or index >= len( self.results[ 'docking_results' ][ label ] ):
-            raise KeyError( "Index " + str(index) + " is out of bound for " + self.pdb_id + " protocol " + label + ": [0," + str(len( self.results[ 'docking_results' ][ label ] ) ) + "]" )
+            raise KeyError( "Index " + str(index) + " is out of bound for " + self.pdb_id + " protocol " + label + ": [0," + str(len( self.results[ 'docking_results' ][ label ] )-1 ) + "]" )
         if self.results[ 'docking_results' ][ label ][ index ] == None:
             raise ValueError( "Index " + str(index) + " is None for " + self.pdb_id + " protocol " + label )
         input_pdb_structure = self.results[ 'docking_results' ][ label ][ index ][ 'input_pose_name' ]
@@ -158,13 +158,13 @@ class PDBresult:
 
 if __name__ == '__main__':
 
-    store = zarr.open('/media/data/pdbbind_dock/formatted_results.zarr', 'r')
-    pdb_entry = PDBresult( store, '184l' )
+    store = zarr.open('full_test.zarr', 'r')
+    pdb_entry = PDBresult( store, '1a0t' )
     pose_relax = pdb_entry.get_complex('pose_relax')
     print(pose_relax.idelta_score)
 
-    perturb_relax_4 = pdb_entry.get_run( 'docking_perturb_pose_relax', 4 )
-    print(perturb_relax_4.idelta_score)
+    perturb_relax = pdb_entry.get_run( 'docking_perturb_pose_relax', 0 )
+    print(perturb_relax.idelta_score)
 
     pose_relax_ligaway = pdb_entry.get_complex( 'pose_relax_ligaway' )
     real_delta = {}
@@ -175,27 +175,19 @@ if __name__ == '__main__':
         if real_delta[key] != 0.0:
             print(key, real_delta[key], pose_relax.raw_delta_energies[key])
 
-    """
     from pyrosetta import *
-    from load_ligand import rdkit_to_mutable_res, mutable_res_to_res
+    from load_ligand import pose_with_ligand
 
     pyrosetta.init(options='-in:auto_setup_metals -ex1 -ex2 -restore_pre_talaris_2013_behavior true -out:levels all:300', silent=False)
 
-    pose = rosetta.core.pose.Pose()
-    rosetta.core.import_pose.pose_from_pdbstring(pose, perturb_relax_4.pdb)
-
-    mut_res, _ = rdkit_to_mutable_res(perturb_relax_4.rdkit_mol)
-    res = mutable_res_to_res(mut_res)
-
-    pose.append_residue_by_jump( res, 1, "", "", True )
-    pose.pdb_info().chain( pose.total_residue(), 'X' )
-    pose.update_pose_chains_from_pdb_chains()
+    pose = pose_with_ligand(pose_relax.pdb, pose_relax.rdkit_mol)
 
     xml_objects = rosetta.protocols.rosetta_scripts.XmlObjects.create_from_file('xml_protocols/docking_std.xml')
     scfx = xml_objects.get_score_function("hard_rep")
 
-    print(scfx(pose), perturb_relax_4.total_score)
+    print(scfx(pose), pose_relax.total_score)
+    print(scfx(pose)-pose_relax.total_score)
 
-    #pose.dump_pdb("rosetta.pdb")
-    #pr.write_pdb("test.pdb")
-    """
+    pose.dump_pdb("rosetta.pdb")
+    pose_relax.write_mol('test.sdf')
+    pose_relax.write_pdb('test.pdb')
