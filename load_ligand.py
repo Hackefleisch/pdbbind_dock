@@ -258,6 +258,21 @@ def moltomolblock(mol):
 def molfrommolblock(molblock):
     return Chem.MolFromMolBlock(molblock, sanitize=False, removeHs=False)
 
+def pose_with_ligand(pdb_string, rdkit_mol, mut_res=None, index_to_vd=None):
+    if mut_res == None or index_to_vd == None:
+        mut_res, index_to_vd = rdkit_to_mutable_res(rdkit_mol)
+    mut_res = add_confs_to_res(rdkit_mol, mut_res, index_to_vd)
+    res = mutable_res_to_res(mut_res)
+
+    pose = rosetta.core.pose.Pose()
+    rosetta.core.import_pose.pose_from_pdbstring(pose, pdb_string)
+
+    pose.append_residue_by_jump( res, 1, "", "", True )
+    pose.pdb_info().chain( pose.total_residue(), 'X' )
+    pose.update_pose_chains_from_pdb_chains()
+
+    return pose
+
 if __name__ == '__main__':
 
     mol = load_ligand(lig_file='pdbbind_cleaned/10gs/10gs_ligand.sdf')

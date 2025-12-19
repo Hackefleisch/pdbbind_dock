@@ -3,7 +3,7 @@ from timeit import default_timer as timer
 from pyrosetta import *
 from statistics import mean
 
-from load_ligand import load_ligand, rdkit_to_mutable_res, add_confs_to_res, mutable_res_to_res, moltomolblock, generate_conformers, molfrommolblock
+from load_ligand import load_ligand, rdkit_to_mutable_res, add_confs_to_res, mutable_res_to_res, moltomolblock, generate_conformers, molfrommolblock, pose_with_ligand
 
 from rdkit.Geometry import Point3D
 
@@ -225,8 +225,6 @@ class Runner():
 
     def load_pose(self, name):
 
-        pose = rosetta.core.pose.Pose()
-
         if 'sanitized_sdf' in self.results:
             print("Found cleaned sdf in results, skip loading pdbbind original for " + name)
             molblock = "\n".join(self.results['sanitized_sdf'])
@@ -257,8 +255,6 @@ class Runner():
                 return self.poses['pose'].clone()
             with open(self.pdb_file) as file:
                 pdb_string = file.read()
-
-        rosetta.core.import_pose.pose_from_pdbstring(pose, pdb_string)
             
         self.conformers = generate_conformers( mol )
 
@@ -271,12 +267,8 @@ class Runner():
             self.results['sanitized_sdf'] = molblock.split('\n')
         mut_res, index_to_vd = rdkit_to_mutable_res(self.conformers)
         self.generate_rosetta_atmname_to_index(index_to_vd, mut_res)
-        mut_res = add_confs_to_res(self.conformers, mut_res, index_to_vd)
-        res = mutable_res_to_res(mut_res)
 
-        pose.append_residue_by_jump( res, 1, "", "", True )
-        pose.pdb_info().chain( pose.total_residue(), 'X' )
-        pose.update_pose_chains_from_pdb_chains()
+        pose = pose_with_ligand(pdb_string, self.conformers, mut_res=mut_res, index_to_vd=index_to_vd)
 
         return pose
 
