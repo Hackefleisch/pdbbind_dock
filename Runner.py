@@ -91,6 +91,148 @@ class Runner():
 
     def run(self, n_relax, n_apo_relax, n_dock):
         total_start = timer()
+        self.process_pose('crystal', n_relax=0)
+        self.process_pose('relax', n_relax=n_relax)
+        self.process_pose('apo_relax', n_relax=n_apo_relax)
+
+    def process_pose(self, name, n_relax):
+        data = self.poses_dset_rnames[()]
+        query = name.encode('utf-8')
+        count = np.count_nonzero(data == query)
+        remaining_relax = n_relax - count
+        if remaining_relax > 0:
+            print(f"Found {count} relaxed versions of {name}. Start to relax {remaining_relax} more.", flush=True)
+            while count < n_relax:
+                count += 1
+                print(f"Relax {count}/{n_relax}")
+                pose, results = self.calculate_pose(self.poses['crystal'].clone(), name, relax=True)
+                self.store_pose_results(pose, results, name)
+                print("\tResults are saved to file.")
+        elif count == 0:
+            print(f"Processing {name} without relax.")
+            pose, results = self.calculate_pose(self.poses['crystal'].clone(), name, relax=False)
+            self.store_pose_results(pose, results, name)
+            print("\tResults are saved to file.")
+
+        print(f"Finished processing {name}", flush=True)
+
+    def close(self):
+        if self.file:
+            self.file.close()
+
+    def store_pose_results(self, pose, results, name):
+        # Resize data sets
+        new_size = self.poses_dset_float.shape[0] + 1
+        self.poses_dset_float.resize((new_size, self.FLOAT_COUNT))
+        self.poses_dset_rnames.resize((new_size,))
+        self.poses_dset_str.resize((new_size,))
+
+        # write data
+        self.poses_dset_float[new_size - 1] = results
+        self.poses_dset_rnames[new_size - 1] = name
+        self.poses_dset_str[new_size - 1] = "\n".join(self.pose_to_stringarr(pose))
+
+        # flush
+        self.file.flush()
+
+    def pose_to_stringarr(self, pose):
+        pu = rosetta.core.io.pose_to_sfr.PoseToStructFileRepConverter()
+        pu.init_from_pose(pose)
+        string = rosetta.core.io.pdb.create_pdb_contents_from_sfr(pu.sfr())
+        stringarr = []
+        for line in string.split('\n'):
+            if len(line) == 0 : continue
+            if line[0] == '#': break
+            #if line[:4] == 'ATOM' or line[:3] == 'TER' or line[:6] == 'HETATM':
+            stringarr.append(line)
+        return stringarr
+    
+    def calculate_pose(self, pose, name, relax):
+
+        results = np.zeros(shape=len(self.column_names), dtype='float32')
+
+        col_index = {
+            key : np.where(self.column_names == key)[0][0] for key in self.column_names
+        }
+
+        start = timer()
+        
+        if name == 'apo_relax':
+            res_array = pyrosetta.rosetta.utility.vector1_bool(pose.total_residue())
+            res_array[pose.total_residue()] = True
+            jump_id = pyrosetta.rosetta.core.kinematics.jump_which_partitions( pose.fold_tree(), res_array )
+            if jump_id == 0:
+                raise ValueError("Faulty jump id")
+            mover = pyrosetta.rosetta.protocols.rigid.RigidBodyTransMover( pose, jump_id )
+            trans_vec = mover.trans_axis()
+            mover.step_size(500)
+            mover.apply(pose)
+
+        if relax:
+            fast_relax = rosetta.protocols.relax.FastRelax()
+            fast_relax.set_scorefxn(self.scfx)
+            fast_relax.ramp_down_constraints(False)
+
+            coord_cst_mover = rosetta.protocols.relax.AtomCoordinateCstMover()
+            coord_cst_mover.cst_sidechain( False )
+            coord_cst_mover.ambiguous_hnq( True )
+            coord_cst_mover.apply(pose)
+
+            fast_relax.apply(pose)
+
+        # saving total score
+        results[col_index['total_score']] = self.scfx(pose)
+        print(f"\tSaved total score: {results[col_index['total_score']]:.4f}")
+
+        # saving interface scores
+        interface_scores = rosetta.protocols.ligand_docking.get_interface_deltas( 'X', pose, self.scfx )
+        results[col_index['idelta_score']] = interface_scores["interface_delta_X"]
+        print(f"\tSaved interface delta score: {results[col_index['idelta_score']]:.4f}")
+        counter = 0
+        for score_type in interface_scores.keys():
+            energy = str(score_type)[5:]
+            if energy in self.score_weights:
+                term = 'raw_delta_' + energy
+                weight = self.score_weights[energy]
+                raw_energy = interface_scores[score_type] / weight
+                results[col_index[term]] = raw_energy
+                counter += 1
+        print(f"\tSaved {counter} raw delta Rosetta energy terms")
+
+        # saving raw energies
+        counter = 0
+        for i in range(rosetta.core.scoring.n_score_types):
+            weight = self.scfx.weights()[ rosetta.core.scoring.ScoreType(i) ]
+            term = 'raw_' + str(rosetta.core.scoring.ScoreType(i)).split('.')[-1]
+            raw_energy = pose.energies().total_energies()[ rosetta.core.scoring.ScoreType(i) ]
+            if abs(weight) > 1e-100:
+                results[col_index[term]] = raw_energy
+                counter += 1
+        print(f"\tSaved {counter} raw Rosetta energy terms")
+
+        if name == 'apo_relax':
+            rmsd_prior = self.crystal_ligand_rmsd.calculate(pose)
+            print("\tRMSD prior replacement at binding site:", f'{rmsd_prior:.4f}')
+            mover.trans_axis(trans_vec.negate())
+            mover.apply(pose)
+            lig_replaced_score = self.scfx(pose)
+            print("\tMoved ligand back into binding pocket. New score:", f'{lig_replaced_score:.4f}')
+
+        rmsd = self.crystal_ligand_rmsd.calculate(pose)
+        results[col_index['rmsd_to_crystal']] = rmsd
+        print("\tRMSD to crystall structure:", f'{rmsd:.4f}')
+
+        had_constraints = pose.remove_constraints()
+        if had_constraints:
+            print("\tRemoved all constraints from pose")
+        else:
+            print("\tNo constraints were added to pose.")
+
+        end = timer()
+        results[col_index['prepare_time']] = end - start
+        print(f"\tProcessing this pose took {results[col_index['prepare_time']]/60:.4f} minutes", flush=True)
+
+        return pose, results
 
     def _load_pose(self, name):
         if name != 'crystal' and self.poses['crystal'] != None:
@@ -161,8 +303,9 @@ class Runner():
             self.poses_grp = self.file['poses']
             self.poses_dset_str = self.file['poses']['pdb_strings']
             self.poses_dset_float = self.file['poses']['results']
-            self.column_names = self.poses_dset_float.attrs['column_names']
             self.poses_dset_rnames = self.file['poses']['row_names']
+        
+        self.column_names = self.poses_dset_float.attrs['column_names']
         
     def _load_protocols(self):
         self.protocols = {}
@@ -192,9 +335,17 @@ if __name__ == '__main__':
     
     pyrosetta.init(options='-in:auto_setup_metals -ex1 -ex2 -restore_pre_talaris_2013_behavior true -out:levels all:100', silent=True)
 
-    r = Runner(
-        pdbbind_path='pdbbind_cleaned',
-        pdb='1a0q',
-        protocol_paths=['xml_protocols/docking_std.xml'],
-        output_dir='h5_test'
-    )
+    try:
+        r = Runner(
+            pdbbind_path='pdbbind_cleaned',
+            pdb='1a0q',
+            protocol_paths=['xml_protocols/docking_std.xml'],
+            output_dir='h5_test'
+        )
+        r.run(
+            n_relax=1,
+            n_apo_relax=1,
+            n_dock=0
+        )
+    finally:
+        r.close()
