@@ -4,7 +4,7 @@ from rdkit.Chem import AllChem
 
 from pyrosetta import *
 
-def generate_conformers(mol, nconf=0):
+def generate_conformers(mol, nconf=0, seed=-1):
     try:
         mol_noH = Chem.RemoveHs( mol )
         nrotbonds = Lipinski.NumRotatableBonds(mol_noH)
@@ -28,6 +28,7 @@ def generate_conformers(mol, nconf=0):
 
     embed_params = AllChem.ETKDGv3()
     embed_params.clearConfs = False
+    embed_params.randomSeed = seed
     AllChem.EmbedMultipleConfs(mol, nconf, embed_params)
     AllChem.AlignMolConformers(mol)
 
