@@ -2,6 +2,7 @@ import numpy as np
 from timeit import default_timer as timer
 from pyrosetta import *
 from statistics import mean
+import pandas as pd
 
 from load_ligand import load_ligand, rdkit_to_mutable_res, moltomolblock, generate_conformers, molfrommolblock, pose_with_ligand
 
@@ -34,6 +35,7 @@ class Runner():
         self.file = h5py.File(self.filepath, 'a')
         self.COMPRESSION = "gzip"
         self.COMP_LEVEL = 4
+        self.BATCH_SIZE = 50
 
 
         # ---       Protocol loading      ---
@@ -67,6 +69,11 @@ class Runner():
             'relax' : None,
             'apo_relax' : None,
         }
+        self.pose_str_arrays = {
+            'crystal' : None,
+            'relax' : None,
+            'apo_relax' : None,
+        }
         self.poses_grp = None
         self.poses_dset_str = None
         self.poses_dset_float = None
@@ -87,6 +94,16 @@ class Runner():
         self.input_ligand_rmsd.set_residue_selector(res_selector)
         self.crystal_ligand_rmsd.set_comparison_pose(self.poses['crystal'])
 
+        print('Prepared rmsd calculator', flush=True)
+
+        # ---       Prepare protein ligand complex datastructure      ---
+        self.docking_dset_str = None
+        self.docking_dset_float = None
+        self.docking_dset_protocols = None
+        self._prepare_complex_data_structure()
+
+        print('Prepared docking data structure', flush=True)
+
 
 
     def run(self, n_relax, n_apo_relax, n_dock):
@@ -94,6 +111,147 @@ class Runner():
         self.process_pose('crystal', n_relax=0)
         self.process_pose('relax', n_relax=n_relax)
         self.process_pose('apo_relax', n_relax=n_apo_relax)
+
+        # load minimal score results and save them to self.poses
+        df = pd.DataFrame(self.poses_dset_float, columns=self.column_names)
+        df.insert(loc=0, column='type', value=self.poses_dset_rnames.asstr()[()])
+        for name in ['crystal', 'relax', 'apo_relax']:
+            min_idx = df[df.type == name]['total_score'].idxmin()
+            pdb_str = self.poses_dset_str.asstr()[min_idx]
+            score = df.loc[min_idx]['total_score']
+            idelta = df.loc[min_idx]['idelta_score']
+            rmsd = df.loc[min_idx]['rmsd_to_crystal']
+            self.poses[name] = pose_with_ligand(pdb_str, self.conformers, self.mut_res, self.index_to_vd)
+            self.pose_str_arrays[name] = pdb_str
+            print(f"{name}: Loaded pose {min_idx} with score {score:.4f} idelta {idelta:.4f} rmsd {rmsd:.4f}")
+
+        for name in ['crystal', 'relax', 'apo_relax']:
+            for protocol in self.protocols:
+                self.dock(name, protocol, n_dock)
+
+        end = timer()
+        time = end - total_start
+        print(f"Finished everything in {time/60:.4f} minutes", flush=True)
+
+    def dock(self, name, protocol, n_docking):
+        data = self.docking_dset_protocols[()]
+        query = name + '_' + protocol
+        query = query.encode('utf-8')
+        count = np.count_nonzero(data == query)
+
+        col_index = {
+            key : np.where(self.column_names == key)[0][0] for key in self.column_names
+        }
+
+        print(f"Start docking {name} {protocol}. {count} runs are recorded, {n_docking - count} remain", flush=True)
+        
+        start = timer()
+
+        compressions = []
+        total_scores = []
+        idelta_scores = []
+        crystal_rmsds = []
+        input_rmsds = []
+
+        batch_results = []
+        batch_protocols = []
+        batch_update_str = []
+
+        buffer_size = 10
+        
+        while count < n_docking:
+            count += 1
+            self.input_ligand_rmsd.set_comparison_pose(self.poses[name])
+            pose, results = self.single_dock(self.poses[name].clone(), self.protocols[protocol])
+
+            update_strings = {}
+            pdb_stringarr = self.pose_to_stringarr(pose)
+            orig_stringarr = self.pose_str_arrays[name]
+            for i,line in enumerate(pdb_stringarr):
+                if line != orig_stringarr[i]:
+                    update_strings[i] = line
+            compressions.append(1 - (len(update_strings)/len(orig_stringarr)))
+
+            total_scores.append(results[col_index['total_score']])
+            idelta_scores.append(results[col_index['idelta_score']])
+            crystal_rmsds.append(results[col_index['rmsd_to_crystal']])
+            input_rmsds.append(results[col_index['rmsd_to_input']])
+
+            batch_results.append(results)
+            batch_protocols.append(name + '_' + protocol)
+            batch_update_str.append(json.dumps(update_strings))
+
+            if len(batch_results) >= buffer_size:
+                self.store_complex_results(batch_results, batch_protocols, batch_update_str)
+                batch_results = []
+                batch_protocols = []
+                batch_update_str = []
+
+        if batch_results:
+            self.store_complex_results(batch_results, batch_protocols, batch_update_str)
+            
+        end = timer()
+        time = end - start
+
+        print(f"\tBest score: {min(total_scores):.4f}")
+        print(f"\tBest idelta: {min(idelta_scores):.4f}")
+        print(f"\tBest rmsd to crystal: {min(crystal_rmsds):.4f}")
+        print(f"\tBest rmsd to input: {min(input_rmsds):.4f}")
+        print(f"\tAverage pdb size reduction: {100*mean(compressions):.4f}%")
+        print(f"\tFinished docking in {time/60:.4f} minutes", flush=True)
+
+    def store_complex_results(self, batch_results, batch_protocols, batch_update_str):
+        # Resize data sets
+        n_new = len(batch_results)
+        current_size = self.docking_dset_float.shape[0]
+        new_size = current_size + n_new
+        self.docking_dset_float.resize((new_size, self.FLOAT_COUNT))
+        self.docking_dset_str.resize((new_size,))
+        self.docking_dset_protocols.resize((new_size,))
+
+        # write data
+        self.docking_dset_float[current_size : new_size] = batch_results
+        self.docking_dset_str[current_size : new_size] = batch_update_str
+        self.docking_dset_protocols[current_size : new_size] = batch_protocols
+
+        # flush
+        self.file.flush()
+
+    def single_dock(self, pose, protocol):
+        results = np.zeros(shape=len(self.column_names), dtype='float32')
+
+        col_index = {
+            key : np.where(self.column_names == key)[0][0] for key in self.column_names
+        }
+
+        start = timer()
+
+        protocol.apply(pose)
+        results[col_index['total_score']] = self.scfx(pose)
+        interface_scores = rosetta.protocols.ligand_docking.get_interface_deltas( 'X', pose, self.scfx )
+        results[col_index['idelta_score']] = interface_scores["interface_delta_X"]
+        results[col_index['rmsd_to_crystal']] = self.crystal_ligand_rmsd.calculate(pose)
+        results[col_index['rmsd_to_input']] = self.input_ligand_rmsd.calculate(pose)
+
+        for score_type in interface_scores.keys():
+            energy = str(score_type)[5:]
+            if energy in self.score_weights:
+                term = 'raw_delta_' + energy
+                weight = self.score_weights[energy]
+                raw_energy = interface_scores[score_type] / weight
+                results[col_index[term]] = raw_energy
+
+        for i in range(rosetta.core.scoring.n_score_types):
+            weight = self.scfx.weights()[ rosetta.core.scoring.ScoreType(i) ]
+            term = 'raw_' + str(rosetta.core.scoring.ScoreType(i)).split('.')[-1]
+            raw_energy = pose.energies().total_energies()[ rosetta.core.scoring.ScoreType(i) ]
+            if abs(weight) > 1e-100:
+                results[col_index[term]] = raw_energy
+
+        end = timer()
+        results[col_index['prepare_time']] = end - start
+
+        return pose, results
 
     def process_pose(self, name, n_relax):
         data = self.poses_dset_rnames[()]
@@ -252,7 +410,11 @@ class Runner():
         self.mut_res, self.index_to_vd = rdkit_to_mutable_res(self.conformers)
 
         if 'ligand_sdf' not in self.file:
-            dset_sdf = self.file.create_dataset('ligand_sdf', shape=(), dtype=h5py.string_dtype(encoding='utf-8'))
+            dset_sdf = self.file.create_dataset(
+                'ligand_sdf', 
+                shape=(), 
+                dtype=h5py.string_dtype(encoding='utf-8'),
+            )
         else:
             dset_sdf = self.file['ligand_sdf']
         dset_sdf[()] = moltomolblock(self.conformers)
@@ -262,10 +424,54 @@ class Runner():
             name = self.mut_res.atom_name(vd)
             atmname_to_idx[ name ] = idx
         if 'atmname_to_idx' not in self.file:
-            dset_map = self.file.create_dataset('atmname_to_idx', shape=(), dtype=h5py.string_dtype(encoding='utf-8'),)
+            dset_map = self.file.create_dataset(
+                'atmname_to_idx',
+                shape=(),
+                dtype=h5py.string_dtype(encoding='utf-8'),
+            )
         else:
             dset_map = self.file['atmname_to_idx']
         dset_map[()] = json.dumps(atmname_to_idx)
+
+    def _prepare_complex_data_structure(self):
+        if 'pdb_strings' not in self.file:
+            self.docking_dset_str = self.file.create_dataset(
+                "pdb_strings", 
+                shape=(0,), 
+                maxshape=(None,), 
+                dtype=h5py.string_dtype(encoding='utf-8'),
+                chunks=(self.BATCH_SIZE,),
+                compression=self.COMPRESSION, 
+                compression_opts=self.COMP_LEVEL
+            )
+        else:
+            self.docking_dset_str = self.file['pdb_strings']
+        if 'results' not in self.file: 
+            self.docking_dset_float = self.file.create_dataset(
+                "results", 
+                shape=(0, self.FLOAT_COUNT), 
+                maxshape=(None, self.FLOAT_COUNT), 
+                dtype='float32',
+                chunks=(self.BATCH_SIZE, self.FLOAT_COUNT),
+                compression=self.COMPRESSION, 
+                compression_opts=self.COMP_LEVEL,
+                shuffle=True
+            )
+            self.docking_dset_float.attrs['column_names'] = self.column_names
+        else:
+            self.docking_dset_float = self.file['results']
+        if 'protocol' not in self.file:
+            self.docking_dset_protocols = self.file.create_dataset(
+                "protocol", 
+                shape=(0,), 
+                maxshape=(None,), 
+                dtype=h5py.string_dtype(encoding='utf-8'),
+                chunks=(self.BATCH_SIZE,),
+                compression=self.COMPRESSION, 
+                compression_opts=self.COMP_LEVEL
+            )
+        else:
+            self.docking_dset_protocols = self.file['protocol']
 
     def _prepare_pose_data_structure(self):
         if 'poses' not in self.file:
@@ -325,7 +531,11 @@ class Runner():
             if abs(weight) > 1e-100:
                 self.score_weights[ term ] = weight
         if 'scfx_weights' not in self.file:
-            dset_weights = self.file.create_dataset('scfx_weights', shape=(), dtype=h5py.string_dtype(encoding='utf-8'))
+            dset_weights = self.file.create_dataset(
+                'scfx_weights', 
+                shape=(), 
+                dtype=h5py.string_dtype(encoding='utf-8'),
+            )
         else:
             dset_weights = self.file['scfx_weights']
         dset_weights[()] = json.dumps(self.score_weights)
@@ -345,7 +555,7 @@ if __name__ == '__main__':
         r.run(
             n_relax=1,
             n_apo_relax=1,
-            n_dock=0
+            n_dock=4
         )
     finally:
         r.close()
