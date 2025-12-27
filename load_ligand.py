@@ -2,6 +2,8 @@ from rdkit import Chem
 from rdkit.Chem import Lipinski
 from rdkit.Chem import AllChem
 
+from rdkit.Geometry import Point3D
+
 from pyrosetta import *
 
 def generate_conformers(mol, nconf=0, seed=-1):
@@ -273,6 +275,21 @@ def pose_with_ligand(pdb_string, rdkit_mol, mut_res=None, index_to_vd=None):
     pose.update_pose_chains_from_pdb_chains()
 
     return pose
+
+def mol_result( rdkit_mol, pdb_str, atmname_to_index ):
+    """
+    This function uses the sanitized rdkit sdf and a pdb to extract a ligand conformer and add it to the rdkit mol object.
+    """
+
+    for line in pdb_str.split('\n'):
+        if line[:6] == 'HETATM' and line[17:20] == 'UNK':
+            x = float(line[30:38])
+            y = float(line[38:46])
+            z = float(line[46:54])
+            name = line[12:16]
+            rdkit_mol.GetConformer(0).SetAtomPosition(atmname_to_index[name], Point3D(x,y,z))
+
+    return rdkit_mol
 
 if __name__ == '__main__':
 

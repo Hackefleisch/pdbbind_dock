@@ -17,20 +17,7 @@ def pdb_result( orig_pdb_strarr, update_pdb_strarr ):
         result[int(idx)] = upd
     return "\n".join(result)
     
-def mol_result( rdkit_mol, pdb_str, atmname_to_index ):
-    """
-    This function uses the sanitized rdkit sdf and a pdb to extract a ligand conformer and add it to the rdkit mol object.
-    """
 
-    for line in pdb_str.split('\n'):
-        if line[:6] == 'HETATM' and line[17:20] == 'UNK':
-            x = float(line[30:38])
-            y = float(line[38:46])
-            z = float(line[46:54])
-            name = line[12:16]
-            rdkit_mol.GetConformer().SetAtomPosition(atmname_to_index[name], Point3D(x,y,z))
-
-    return rdkit_mol
 
 class PDBrun:
     """
