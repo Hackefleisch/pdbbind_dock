@@ -4,9 +4,7 @@ from pyrosetta import *
 from statistics import mean
 import pandas as pd
 
-from load_ligand import load_ligand, rdkit_to_mutable_res, moltomolblock, generate_conformers, molfrommolblock, pose_with_ligand
-
-from rdkit.Geometry import Point3D
+from load_ligand import load_ligand, rdkit_to_mutable_res, moltomolblock, generate_conformers, pose_with_ligand, mol_result
 
 import h5py
 import json
@@ -59,6 +57,7 @@ class Runner():
         self.conformers = None
         self.mut_res = None
         self.index_to_vd = None
+        self.atmname_to_idx = None
         self._prepare_ligand()
 
         print("Prepared ligand", flush=True)
@@ -121,6 +120,9 @@ class Runner():
             score = df.loc[min_idx]['total_score']
             idelta = df.loc[min_idx]['idelta_score']
             rmsd = df.loc[min_idx]['rmsd_to_crystal']
+            # TODO: Bug - the new ligand coordinates are not carried over to the new rosetta pose
+            #       it just uses the standard conformer and therefore reports the same rmsd
+            mol_result(self.conformers, pdb_str, self.atmname_to_idx)
             self.poses[name] = pose_with_ligand(pdb_str, self.conformers, self.mut_res, self.index_to_vd)
             self.pose_str_arrays[name] = pdb_str
             print(f"{name}: Loaded pose {min_idx} with score {score:.4f} idelta {idelta:.4f} rmsd {rmsd:.4f}")
@@ -158,10 +160,10 @@ class Runner():
         batch_update_str = []
 
         buffer_size = 10
+        self.input_ligand_rmsd.set_comparison_pose(self.poses[name])
         
         while count < n_docking:
             count += 1
-            self.input_ligand_rmsd.set_comparison_pose(self.poses[name])
             pose, results = self.single_dock(self.poses[name].clone(), self.protocols[protocol])
 
             update_strings = {}
@@ -193,11 +195,12 @@ class Runner():
         end = timer()
         time = end - start
 
-        print(f"\tBest score: {min(total_scores):.4f}")
-        print(f"\tBest idelta: {min(idelta_scores):.4f}")
-        print(f"\tBest rmsd to crystal: {min(crystal_rmsds):.4f}")
-        print(f"\tBest rmsd to input: {min(input_rmsds):.4f}")
-        print(f"\tAverage pdb size reduction: {100*mean(compressions):.4f}%")
+        if total_scores:
+            print(f"\tBest score: {min(total_scores):.4f}")
+            print(f"\tBest idelta: {min(idelta_scores):.4f}")
+            print(f"\tBest rmsd to crystal: {min(crystal_rmsds):.4f}")
+            print(f"\tBest rmsd to input: {min(input_rmsds):.4f}")
+            print(f"\tAverage pdb size reduction: {100*mean(compressions):.4f}%")
         print(f"\tFinished docking in {time/60:.4f} minutes", flush=True)
 
     def store_complex_results(self, batch_results, batch_protocols, batch_update_str):
@@ -419,10 +422,10 @@ class Runner():
             dset_sdf = self.file['ligand_sdf']
         dset_sdf[()] = moltomolblock(self.conformers)
 
-        atmname_to_idx = {}
+        self.atmname_to_idx = {}
         for idx, vd in self.index_to_vd.items():
             name = self.mut_res.atom_name(vd)
-            atmname_to_idx[ name ] = idx
+            self.atmname_to_idx[ name ] = idx
         if 'atmname_to_idx' not in self.file:
             dset_map = self.file.create_dataset(
                 'atmname_to_idx',
@@ -431,7 +434,7 @@ class Runner():
             )
         else:
             dset_map = self.file['atmname_to_idx']
-        dset_map[()] = json.dumps(atmname_to_idx)
+        dset_map[()] = json.dumps(self.atmname_to_idx)
 
     def _prepare_complex_data_structure(self):
         if 'pdb_strings' not in self.file:
@@ -555,7 +558,7 @@ if __name__ == '__main__':
         r.run(
             n_relax=1,
             n_apo_relax=1,
-            n_dock=4
+            n_dock=11
         )
     finally:
         r.close()
