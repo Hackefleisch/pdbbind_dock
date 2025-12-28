@@ -120,10 +120,11 @@ class Runner():
             score = df.loc[min_idx]['total_score']
             idelta = df.loc[min_idx]['idelta_score']
             rmsd = df.loc[min_idx]['rmsd_to_crystal']
-            # TODO: Bug - the new ligand coordinates are not carried over to the new rosetta pose
-            #       it just uses the standard conformer and therefore reports the same rmsd
-            mol_result(self.conformers, pdb_str, self.atmname_to_idx)
-            self.poses[name] = pose_with_ligand(pdb_str, self.conformers, self.mut_res, self.index_to_vd)
+            conf = mol_result(self.conformers, pdb_str, self.atmname_to_idx)
+            self.poses[name] = pose_with_ligand(pdb_str, conf)
+            #self.poses[name].dump_pdb(name + '.pdb')
+            #with open(name + '2.pdb', 'w') as file:
+            #    file.write(pdb_str)
             self.pose_str_arrays[name] = pdb_str
             print(f"{name}: Loaded pose {min_idx} with score {score:.4f} idelta {idelta:.4f} rmsd {rmsd:.4f}")
 
@@ -551,14 +552,14 @@ if __name__ == '__main__':
     try:
         r = Runner(
             pdbbind_path='pdbbind_cleaned',
-            pdb='1a0q',
+            pdb='5k00',
             protocol_paths=['xml_protocols/docking_std.xml'],
             output_dir='h5_test'
         )
         r.run(
-            n_relax=1,
-            n_apo_relax=1,
-            n_dock=11
+            n_relax=2,
+            n_apo_relax=0,
+            n_dock=7
         )
     finally:
         r.close()
