@@ -282,7 +282,7 @@ def mol_result( rdkit_mol, pdb_str, atmname_to_index ):
     mol = copy.deepcopy(rdkit_mol)
 
     conf = Chem.Conformer(mol.GetConformer(0))
-    mol.AddConformer(conf)
+    mol.AddConformer(conf, mol.GetNumConformers())
 
     for line in pdb_str.split('\n'):
         if line[:6] == 'HETATM' and line[17:20] == 'UNK':
