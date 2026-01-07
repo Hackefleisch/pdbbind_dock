@@ -560,9 +560,9 @@ if __name__ == '__main__':
             output_dir='h5_test'
         )
         r.run(
-            n_relax=1,
-            n_apo_relax=1,
-            n_dock=3
+            n_relax=0,
+            n_apo_relax=0,
+            n_dock=1
         )
     finally:
         r.close()

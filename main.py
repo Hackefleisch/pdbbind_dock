@@ -5,7 +5,7 @@ import pathlib
 import shutil
 
 
-def main(pdbbind_path, pdb_file, pdb_index, n_relax, n_relax_ligaway, n_dock, zarr_path, protocols):
+def main(pdbbind_path, pdb_file, pdb_index, n_relax, n_relax_ligaway, n_dock, outdir, protocols):
 
     print("Loading pdb codes...", flush=True)
 
@@ -25,20 +25,20 @@ def main(pdbbind_path, pdb_file, pdb_index, n_relax, n_relax_ligaway, n_dock, za
 
     print("Process", pdb_index, "selected complex", pdb, flush=True)
 
-    # setup
-    r = Runner(
-        pdbbind_path.as_posix(), 
-        pdb, 
-        [p.as_posix() for p in protocols], 
-        zarr_path=zarr_path.as_posix()
-    )
-
-    # dock
-    r.run(
-        n_relax=n_relax, 
-        n_relax_ligaway=n_relax_ligaway, 
-        n_dock=n_dock
-    )
+    try:
+        r = Runner(
+            pdbbind_path=pdbbind_path.as_posix(),
+            pdb=pdb,
+            protocol_paths=[p.as_posix() for p in protocols],
+            output_dir=outdir.as_posix()
+        )
+        r.run(
+            n_relax=n_relax,
+            n_apo_relax=n_relax_ligaway,
+            n_dock=n_dock
+        )
+    finally:
+        r.close()
 
 if __name__ == '__main__':
     import argparse
@@ -51,7 +51,7 @@ if __name__ == '__main__':
     parser.add_argument( "--n_relax", default=10, type=int, help='How often should the pose with ligand be relaxed. The lowest scoring pose will be used for docking.' )
     parser.add_argument( "--n_relax_ligaway", default=10, type=int, help='How often should the pose without ligand be relaxed. The lowest scoring pose will be used for docking.' )
     parser.add_argument( "--n_dock", default=150, type=int, help='How often should each docking protocol be applied to each pose.' )
-    parser.add_argument( "--zarr_store", type=pathlib.Path, help="Location of zarr store directory to save results", required=True )
+    parser.add_argument( "--outdir", type=pathlib.Path, help="Location of a directory to store hd5 files in", required=True )
     parser.add_argument( "--pdbbind", type=pathlib.Path, help="Location of pdbbind directory", required=True )
     parser.add_argument( "--pdb_file", type=pathlib.Path, help="Location of pdb list to dock", required=True )
     parser.add_argument( "--pdb_index", type=int, help='Line index in pdbfile', required=True )
@@ -72,6 +72,6 @@ if __name__ == '__main__':
         n_relax=args.n_relax, 
         n_relax_ligaway=args.n_relax_ligaway, 
         n_dock=args.n_dock, 
-        zarr_path=args.zarr_store,
+        outdir=args.outdir,
         protocols=args.protocols,
     )
