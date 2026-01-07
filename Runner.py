@@ -120,6 +120,9 @@ class Runner():
             score = df.loc[min_idx]['total_score']
             idelta = df.loc[min_idx]['idelta_score']
             rmsd = df.loc[min_idx]['rmsd_to_crystal']
+            # this function returns a deep copy of the current rdkit mol with all conformers, but the first one
+            # has been updated to the coordinates in the pdb_str and a copy of the original first conformer has
+            # been added to the end
             conf = mol_result(self.conformers, pdb_str, self.atmname_to_idx)
             self.poses[name] = pose_with_ligand(pdb_str, conf)
             #self.poses[name].dump_pdb(name + '.pdb')
@@ -557,9 +560,9 @@ if __name__ == '__main__':
             output_dir='h5_test'
         )
         r.run(
-            n_relax=2,
-            n_apo_relax=0,
-            n_dock=7
+            n_relax=1,
+            n_apo_relax=1,
+            n_dock=3
         )
     finally:
         r.close()
