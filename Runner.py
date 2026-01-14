@@ -128,7 +128,7 @@ class Runner():
             #self.poses[name].dump_pdb(name + '.pdb')
             #with open(name + '2.pdb', 'w') as file:
             #    file.write(pdb_str)
-            self.pose_str_arrays[name] = pdb_str
+            self.pose_str_arrays[name] = pdb_str.split('\n')
             print(f"{name}: Loaded pose {min_idx} with score {score:.4f} idelta {idelta:.4f} rmsd {rmsd:.4f}")
 
         for name in ['crystal', 'relax', 'apo_relax']:
