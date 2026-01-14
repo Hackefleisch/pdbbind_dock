@@ -9,5 +9,6 @@
 /posebusters_paper_data
 /pdbbind_cleaned
 log.txt
+error.txt
 test_out/*
 h5_test/*

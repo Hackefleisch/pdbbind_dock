@@ -21,5 +21,4 @@ export -f run_docking
 
 # Run indices 0 to 11517 using 10 parallel jobs
 # only start new jobs if 7gb of memory are free
-# seq 0 11517 | parallel -j 10 --memfree 7G run_docking
-seq 0 10 | parallel -j 10 --memfree 7G run_docking
+seq 0 11517 | parallel -j 10 --memfree 7G run_docking
