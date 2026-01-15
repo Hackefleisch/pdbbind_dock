@@ -17,7 +17,11 @@ def main(pdbbind_path, pdb_file, pdb_index, n_relax, n_relax_ligaway, n_dock, ou
             # skip comments
             if line[0] == '#':
                 continue
-            pdb_id = line[:4]
+            line = line.strip()
+            if '_' in line and len(line) == 8:
+                pdb_id = line
+            else:
+                pdb_id = line[:4]
             if counter == pdb_index:
                 pdb = pdb_id
                 break
