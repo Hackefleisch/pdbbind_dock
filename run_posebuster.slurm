@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=6G
 #SBATCH --time=2-00:00:00
-#SBATCH --job-name=PDBBdock
+#SBATCH --job-name=PoBudock
 #SBATCH --array=0-427
 #SBATCH --output=posebuster_logs/%x_%A_%a.out
 #SBATCH --error=posebuster_logs/%x_%A_%a.err

@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=6G
 #SBATCH --time=2-00:00:00
-#SBATCH --job-name=PDBBdock
+#SBATCH --job-name=Astdock
 #SBATCH --array=0-84
 #SBATCH --output=astex_logs/%x_%A_%a.out
 #SBATCH --error=astex_logs/%x_%A_%a.err
