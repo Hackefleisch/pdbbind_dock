@@ -4,6 +4,7 @@ import json
 import pandas as pd
 from rdkit import Chem
 import copy
+import zlib
 
 from load_ligand import mol_result
 
@@ -38,7 +39,11 @@ class Result:
             self.relax_df: pd.DataFrame = pd.DataFrame(data, columns=headers)
             self.relax_df.insert(loc=0, column='type', value=names)
 
-            self.relax_pdb: list[str] = file['poses']['pdb_strings'].asstr()[()]
+            self.relax_pdb: list[str] = []
+            for blob in file['poses']['pdb_strings']:
+                # blob (uint8 array) -> bytes -> decompress -> string
+                pdb_str = zlib.decompress(blob.tobytes()).decode('utf-8')
+                self.relax_pdb.append(pdb_str)
 
             data = file['results']
             names = file['protocol'].asstr()[()]
@@ -47,8 +52,10 @@ class Result:
             self.docking_df.insert(loc=0, column='type', value=names)
 
             self.docking_pdb_updates: list[dict[str, str]] = []
-            for r in file['pdb_strings'][()]:
-                self.docking_pdb_updates.append(json.loads(r))
+            for blob in file['pdb_strings']:
+                # blob (uint8 array) -> bytes -> decompress -> string -> json
+                json_str = zlib.decompress(blob.tobytes()).decode('utf-8')
+                self.docking_pdb_updates.append(json.loads(json_str))
 
     def relaxed_pdb(self, index: int) -> str:
         return self.relax_pdb[index]

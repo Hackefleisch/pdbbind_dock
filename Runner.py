@@ -1,3 +1,4 @@
+import zlib
 import numpy as np
 from timeit import default_timer as timer
 from pyrosetta import *
@@ -116,7 +117,8 @@ class Runner():
         df.insert(loc=0, column='type', value=self.poses_dset_rnames.asstr()[()])
         for name in ['crystal', 'relax', 'apo_relax']:
             min_idx = df[df.type == name]['total_score'].idxmin()
-            pdb_str = self.poses_dset_str.asstr()[min_idx]
+            compressed_blob = self.poses_dset_str[min_idx]
+            pdb_str = zlib.decompress(compressed_blob.tobytes()).decode('utf-8')
             score = df.loc[min_idx]['total_score']
             idelta = df.loc[min_idx]['idelta_score']
             rmsd = df.loc[min_idx]['rmsd_to_crystal']
@@ -216,9 +218,16 @@ class Runner():
         self.docking_dset_str.resize((new_size,))
         self.docking_dset_protocols.resize((new_size,))
 
+        # Convert JSON strings to compressed bytes
+        compressed_updates = []
+        for s in batch_update_str:
+            # Encode text -> bytes, Compress -> bytes, wrap in uint8 array
+            compressed_data = np.frombuffer(zlib.compress(s.encode('utf-8')), dtype=np.uint8)
+            compressed_updates.append(compressed_data)
+
         # write data
         self.docking_dset_float[current_size : new_size] = batch_results
-        self.docking_dset_str[current_size : new_size] = batch_update_str
+        self.docking_dset_str[current_size : new_size] = compressed_updates
         self.docking_dset_protocols[current_size : new_size] = batch_protocols
 
         # flush
@@ -292,10 +301,14 @@ class Runner():
         self.poses_dset_rnames.resize((new_size,))
         self.poses_dset_str.resize((new_size,))
 
+        # compress string
+        pdb_text = "\n".join(self.pose_to_stringarr(pose))
+        compressed_pdb = np.frombuffer(zlib.compress(pdb_text.encode('utf-8')), dtype=np.uint8)
+
         # write data
         self.poses_dset_float[new_size - 1] = results
         self.poses_dset_rnames[new_size - 1] = name
-        self.poses_dset_str[new_size - 1] = "\n".join(self.pose_to_stringarr(pose))
+        self.poses_dset_str[new_size - 1] = compressed_pdb
 
         # flush
         self.file.flush()
@@ -446,7 +459,7 @@ class Runner():
                 "pdb_strings", 
                 shape=(0,), 
                 maxshape=(None,), 
-                dtype=h5py.string_dtype(encoding='utf-8'),
+                dtype=h5py.vlen_dtype(np.uint8),
                 chunks=(self.BATCH_SIZE,),
                 compression=self.COMPRESSION, 
                 compression_opts=self.COMP_LEVEL
@@ -487,7 +500,7 @@ class Runner():
                 "pdb_strings", 
                 shape=(0,), 
                 maxshape=(None,), 
-                dtype=h5py.string_dtype(encoding='utf-8'),
+                dtype=h5py.vlen_dtype(np.uint8),
                 chunks=(1,),
                 compression=self.COMPRESSION, 
                 compression_opts=self.COMP_LEVEL
