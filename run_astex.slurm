@@ -4,7 +4,7 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=5G
-#SBATCH --time=12:00:00
+#SBATCH --time=1-00:00:00
 #SBATCH --job-name=Astdock
 #SBATCH --array=0-84
 #SBATCH --output=astex_logs/%x_%A_%a.out
