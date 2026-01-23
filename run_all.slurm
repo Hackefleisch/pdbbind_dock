@@ -3,8 +3,8 @@
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=5G
-#SBATCH --time=1-00:00:00
+#SBATCH --mem=10G
+#SBATCH --time=3-00:00:00
 #SBATCH --job-name=PDBBdock
 #SBATCH --array=0-11459
 #SBATCH --output=logs/%x_%A_%a.out
