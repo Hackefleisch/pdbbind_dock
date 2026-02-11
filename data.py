@@ -23,27 +23,16 @@ def pdb_result( orig_pdb_str, update_pdb_strarr ):
 
 class Result:
 
-    def __init__(self, h5_file_path: str, name: str) -> None:
+    def __init__(self, h5_file_path: str, name: str, load_structure: bool = True) -> None:
         self.name: str = name
         self.path: str = h5_file_path
 
         with h5py.File(self.path, 'r') as file:
-            self.atmname_to_index: dict[str, int] = json.loads(file['atmname_to_idx'][()])
-            self.scfx_weights: dict[str, float] = json.loads(file['scfx_weights'][()])
-            self.ligand_sdf: str = file['ligand_sdf'].asstr()[()]
-            self.mol = Chem.MolFromMolBlock( self.ligand_sdf, sanitize=False, removeHs=False )
-
             data = file['poses']['results']
             names = file['poses']['row_names'].asstr()[()]
             headers = file['poses']['results'].attrs['column_names']
             self.relax_df: pd.DataFrame = pd.DataFrame(data, columns=headers)
             self.relax_df.insert(loc=0, column='type', value=names)
-
-            self.relax_pdb: list[str] = []
-            for blob in file['poses']['pdb_strings']:
-                # blob (uint8 array) -> bytes -> decompress -> string
-                pdb_str = zlib.decompress(blob.tobytes()).decode('utf-8')
-                self.relax_pdb.append(pdb_str)
 
             data = file['results']
             names = file['protocol'].asstr()[()]
@@ -51,11 +40,24 @@ class Result:
             self.docking_df: pd.DataFrame = pd.DataFrame(data, columns=headers)
             self.docking_df.insert(loc=0, column='type', value=names)
 
-            self.docking_pdb_updates: list[dict[str, str]] = []
-            for blob in file['pdb_strings']:
-                # blob (uint8 array) -> bytes -> decompress -> string -> json
-                json_str = zlib.decompress(blob.tobytes()).decode('utf-8')
-                self.docking_pdb_updates.append(json.loads(json_str))
+            self.scfx_weights: dict[str, float] = json.loads(file['scfx_weights'][()])
+
+            if load_structure:
+                self.atmname_to_index: dict[str, int] = json.loads(file['atmname_to_idx'][()])
+                self.ligand_sdf: str = file['ligand_sdf'].asstr()[()]
+                self.mol = Chem.MolFromMolBlock( self.ligand_sdf, sanitize=False, removeHs=False )
+
+                self.relax_pdb: list[str] = []
+                for blob in file['poses']['pdb_strings']:
+                    # blob (uint8 array) -> bytes -> decompress -> string
+                    pdb_str = zlib.decompress(blob.tobytes()).decode('utf-8')
+                    self.relax_pdb.append(pdb_str)
+
+                self.docking_pdb_updates: list[dict[str, str]] = []
+                for blob in file['pdb_strings']:
+                    # blob (uint8 array) -> bytes -> decompress -> string -> json
+                    json_str = zlib.decompress(blob.tobytes()).decode('utf-8')
+                    self.docking_pdb_updates.append(json.loads(json_str))
 
     def relaxed_pdb(self, index: int) -> str:
         return self.relax_pdb[index]
@@ -124,8 +126,8 @@ class PDBRinterface:
         if len(self.results) == 0:
             raise ValueError("No h5 files found in " + h5_directory + ". Please check directory path.")
         
-    def get_result(self, pdb_id: str) -> Result:
-        return Result(self.results[pdb_id], pdb_id)
+    def get_result(self, pdb_id: str, load_structure: bool = True) -> Result:
+        return Result(self.results[pdb_id], pdb_id, load_structure)
     
 
 if __name__ == '__main__':
