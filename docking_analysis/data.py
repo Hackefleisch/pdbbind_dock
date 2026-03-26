@@ -12,13 +12,57 @@ This module provides:
 - raw_delta column discovery
 """
 
+import io
 import math
 import zipfile
 from pathlib import Path
 
 import pandas as pd
+from tqdm import tqdm
 
-from .constants import INDEX_PATH, KD_RE, UNIT_TO_MOLAR, ZERO_VARIANCE_TERMS, ZIP_PATH
+from .constants import (
+    FILTERED_ZIP,
+    INDEX_PATH,
+    KD_RE,
+    UNIT_TO_MOLAR,
+    ZERO_VARIANCE_TERMS,
+    ZIP_PATH,
+)
+
+
+# ---------------------------------------------------------------------------
+# Helper: read a zip entry into a BytesIO with a tqdm progress bar
+# ---------------------------------------------------------------------------
+def _read_zip_entry_with_progress(
+    zip_path: Path,
+    desc: str = "Reading zip",
+) -> io.BytesIO:
+    """
+    Read the first CSV entry from *zip_path* into a :class:`~io.BytesIO`
+    buffer, showing a tqdm progress bar based on the uncompressed size.
+
+    Using an explicit chunked read avoids the problem where pandas' C CSV
+    parser bypasses Python-level file wrappers (which makes
+    ``tqdm.wrapattr`` appear stuck).
+    """
+    buf = io.BytesIO()
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        entry = zf.infolist()[0]
+        with zf.open(entry) as fh:
+            with tqdm(
+                total=entry.file_size,
+                desc=desc,
+                unit="B",
+                unit_scale=True,
+            ) as pbar:
+                while True:
+                    chunk = fh.read(1 << 20)  # 1 MB
+                    if not chunk:
+                        break
+                    buf.write(chunk)
+                    pbar.update(len(chunk))
+    buf.seek(0)
+    return buf
 
 
 # ---------------------------------------------------------------------------
@@ -76,11 +120,8 @@ def load_kd_index(index_path: Path = INDEX_PATH) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 def load_docking_dataframe(zip_path: Path = ZIP_PATH) -> pd.DataFrame:
     """Read the CSV from inside the zip and return a DataFrame."""
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        csv_name = zf.namelist()[0]  # only one file inside
-        with zf.open(csv_name) as fh:
-            df = pd.read_csv(fh)
-    return df
+    buf = _read_zip_entry_with_progress(zip_path, desc="Reading full CSV (zip)")
+    return pd.read_csv(buf)
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +142,84 @@ def filter_relax_and_perturb(df: pd.DataFrame) -> pd.DataFrame:
     has_perturb = buzzwords.apply(lambda bw: "perturb" in bw)
     mask = has_relax & has_perturb
     return df.loc[mask].copy()
+
+
+# ---------------------------------------------------------------------------
+# Filtered-subset creation & loading
+# ---------------------------------------------------------------------------
+def create_filtered_subset(
+    df_kd: pd.DataFrame,
+    zip_path: Path = ZIP_PATH,
+    out_path: Path = FILTERED_ZIP,
+) -> Path:
+    """
+    Load the full docking data from *zip_path*, filter for relax+perturb
+    protocols, join Kd values, keep only rows **with** a Kd measurement,
+    and save the result as a compressed zip.
+
+    This is intended to be run **once** so that subsequent analyses can
+    skip the expensive 20 M-row load and work with the much smaller
+    subset directly.
+
+    Parameters
+    ----------
+    df_kd : DataFrame
+        Kd index as returned by :func:`load_kd_index`.
+    zip_path : Path
+        Path to the full docking-data zip.
+    out_path : Path
+        Destination zip for the filtered subset.
+
+    Returns the path to the written zip.
+    """
+    print(f"Loading full dataframe from {zip_path} …")
+    df_full = load_docking_dataframe(zip_path)
+    print(f"  Total rows loaded : {len(df_full):,}")
+    print(f"  All type values   : {sorted(df_full['type'].unique())}")
+
+    print("Filtering for types containing both 'relax' and 'perturb' …")
+    df = filter_relax_and_perturb(df_full)
+    print(f"  Rows after filter : {len(df):,}")
+    print(f"  Matching types    : {sorted(df['type'].unique())}")
+
+    print("Joining Kd values and dropping rows without Kd …")
+    df = df.merge(df_kd, on="pdb", how="inner")
+    print(f"  Rows with Kd      : {len(df):,}")
+    print(f"  Unique PDB IDs    : {df['pdb'].nunique():,}")
+
+    csv_name = "pdbbind_relax_perturb_kd.csv"
+    with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(csv_name, df.to_csv(index=False))
+    print(f"  Filtered subset saved → {out_path}")
+    return out_path
+
+
+def load_filtered_dataframe(
+    df_kd: pd.DataFrame,
+    filtered_path: Path = FILTERED_ZIP,
+    zip_path: Path = ZIP_PATH,
+) -> pd.DataFrame:
+    """
+    Load the pre-filtered relax+perturb subset (with Kd values).
+
+    If the filtered zip does not exist yet, it is created automatically
+    from the full zip + Kd index (one-time cost).
+
+    Parameters
+    ----------
+    df_kd : DataFrame
+        Kd index (used only when the cached zip needs to be created).
+    """
+    if not filtered_path.exists():
+        print(f"Filtered zip not found at {filtered_path} — creating it now.")
+        create_filtered_subset(df_kd, zip_path=zip_path, out_path=filtered_path)
+
+    buf = _read_zip_entry_with_progress(
+        filtered_path, desc="Loading filtered subset",
+    )
+    df = pd.read_csv(buf)
+    print(f"  Rows loaded : {len(df):,}")
+    return df
 
 
 # ---------------------------------------------------------------------------

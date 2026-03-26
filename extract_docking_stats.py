@@ -3,19 +3,19 @@ extract_docking_stats.py
 ------------------------
 Orchestrator script that ties together the ``docking_analysis`` package:
 
-1. Loads the PDBbind docking data and Kd index.
-2. Filters for relax+perturb protocols.
-3. Generates density-scatter figures (docking score vs. binding affinity).
-4. Trains linear reweighting models and plots the results.
-5. Generates an illustrative energy-distribution figure.
+1. Loads the pre-filtered PDBbind docking data (relax+perturb subset)
+   and Kd index.  On the first run the filtered CSV is created
+   automatically from the full zip (~20 M → ~2 M rows).
+2. Generates density-scatter figures (docking score vs. binding affinity).
+3. Trains linear reweighting models and plots the results.
+4. Generates an illustrative energy-distribution figure.
 """
 
 import numpy as np
 
-from docking_analysis.constants import INDEX_PATH, OUTPUT_DIR, ZIP_PATH
+from docking_analysis.constants import INDEX_PATH, OUTPUT_DIR
 from docking_analysis.data import (
-    filter_relax_and_perturb,
-    load_docking_dataframe,
+    load_filtered_dataframe,
     load_kd_index,
 )
 from docking_analysis.figures import (
@@ -32,27 +32,15 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 
 def main():
-    # --- docking data --------------------------------------------------------
-    print(f"Loading docking data from {ZIP_PATH} …")
-    df_full = load_docking_dataframe()
-    print(f"  Total rows loaded : {len(df_full):,}")
-    print(f"  All type values   : {sorted(df_full['type'].unique())}")
-
-    print("\nFiltering for types containing both 'relax' and 'perturb' …")
-    df = filter_relax_and_perturb(df_full)
-    print(f"  Rows after filter : {len(df):,}")
-    print(f"  Matching types    : {sorted(df['type'].unique())}")
-
-    # --- Kd index ------------------------------------------------------------
-    print(f"\nLoading Kd values from {INDEX_PATH} …")
+    # --- Kd index (needed to build the filtered subset on first run) ---------
+    print(f"Loading Kd values from {INDEX_PATH} …")
     df_kd = load_kd_index()
 
-    # --- join ----------------------------------------------------------------
-    df = df.merge(df_kd, on="pdb", how="left")
-    n_matched = df["kd_M"].notna().sum()
+    # --- docking data (pre-filtered subset with Kd values) -------------------
+    df = load_filtered_dataframe(df_kd)
     print(
-        f"\n  PDB IDs in filtered docking data : {df['pdb'].nunique():,}\n"
-        f"  Rows with a Kd value after join  : {n_matched:,} / {len(df):,}"
+        f"\n  PDB IDs : {df['pdb'].nunique():,}"
+        f"  |  Rows : {len(df):,}"
     )
 
     # --- docking-score figures -----------------------------------------------
@@ -82,4 +70,4 @@ def main():
 if __name__ == "__main__":
     df = main()
     print(f"\nResulting DataFrame shape: {df.shape}")
-    print(df[["pdb", "type", "total_score", "kd_M", "log_kd"]].head(10))
+    print(df[["pdb", "type", "total_score", "idelta_score", "kd_M", "log_kd"]].head(10))

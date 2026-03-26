@@ -12,9 +12,10 @@ from pathlib import Path
 # Paths
 # ---------------------------------------------------------------------------
 REPO_ROOT  = Path(__file__).resolve().parent.parent
-ZIP_PATH   = REPO_ROOT / "docking_stats" / "pdbbind_docking_data.zip"
-INDEX_PATH = REPO_ROOT / "pdbbind_2020plus" / "INDEX_general_PL.2020R1.lst"
-OUTPUT_DIR = REPO_ROOT / "figures"
+ZIP_PATH        = REPO_ROOT / "docking_stats" / "pdbbind_docking_data.zip"
+FILTERED_ZIP    = REPO_ROOT / "docking_stats" / "pdbbind_relax_perturb_kd.zip"
+INDEX_PATH      = REPO_ROOT / "pdbbind_2020plus" / "INDEX_general_PL.2020R1.lst"
+OUTPUT_DIR      = REPO_ROOT / "figures"
 
 # ---------------------------------------------------------------------------
 # Unit → Molar conversion factors
