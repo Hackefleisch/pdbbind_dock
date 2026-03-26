@@ -266,19 +266,26 @@ def plot_weight_bar_chart(
     if scfx_json_path is None:
         scfx_json_path = out_dir / "scfx_weights.json"
 
-    top = weights_df.head(15).copy()
-    clean_labels = top["energy_term"].str.replace("^raw_delta_", "", regex=True)
-
-    # Load original weights (defaults to 0.0 if file is missing)
-    original_weights: dict[str, float] = {term: 0.0 for term in top["energy_term"]}
+    # Load original weights for ALL terms so we can sort by them
+    all_terms = weights_df.copy()
+    original_weights: dict[str, float] = {t: 0.0 for t in all_terms["energy_term"]}
     if scfx_json_path.exists():
         with open(scfx_json_path, "r") as f:
             scfx_data = json.load(f)
-            for raw_term in top["energy_term"]:
+            for raw_term in all_terms["energy_term"]:
                 clean_term = raw_term.replace("raw_delta_", "")
                 original_weights[raw_term] = scfx_data.get(clean_term, 0.0)
 
-    top["original_weight"] = top["energy_term"].map(original_weights)
+    all_terms["original_weight"] = all_terms["energy_term"].map(original_weights)
+
+    # Sort by original weight (descending) and take top 15
+    top = (
+        all_terms
+        .sort_values("original_weight", key=abs, ascending=False)
+        .head(15)
+        .copy()
+    )
+    clean_labels = top["energy_term"].str.replace("^raw_delta_", "", regex=True)
 
     fig, ax = plt.subplots(figsize=(9, 6))
 
