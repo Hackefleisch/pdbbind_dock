@@ -177,6 +177,9 @@ def create_filtered_subset(
     print(f"  Total rows loaded : {len(df_full):,}")
     print(f"  All type values   : {sorted(df_full['type'].unique())}")
 
+    print("Assigning intra-type sequence IDs to mathematically align with H5 caches …")
+    df_full["type_seq_id"] = df_full.groupby(["pdb", "type"]).cumcount()
+
     print("Filtering for types containing both 'relax' and 'perturb' …")
     df = filter_relax_and_perturb(df_full)
     print(f"  Rows after filter : {len(df):,}")
@@ -191,7 +194,7 @@ def create_filtered_subset(
     print(f"  Rows with Kd      : {len(df):,}")
     print(f"  Unique PDB IDs    : {df['pdb'].nunique():,}")
 
-    csv_name = "pdbbind_relax_perturb_filtered_kd.csv"
+    csv_name = "pdbbind_relax_perturb_filtered_kd_v2.csv"
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(csv_name, df.to_csv(index=False))
     print(f"  Filtered subset saved → {out_path}")

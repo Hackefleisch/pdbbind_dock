@@ -30,10 +30,10 @@ from docking_analysis.data import (
     load_kd_index,
 )
 from docking_analysis.experiment import (
-    CLUSTERED_EXPERIMENTS,
     DEFAULT_EXPERIMENTS,
     ResultsMatrix,
     compute_baseline_metrics,
+    get_clustered_experiments,
 )
 from docking_analysis.figures import (
     plot_energy_distributions,
@@ -46,7 +46,7 @@ from docking_analysis.reweighting import train_reweighting_model
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 
-def main(n_workers: int | None = None):
+def main(n_workers: int | None = None, rmsd_cutoff: float = 2.0):
     # --- Kd index (needed to build the filtered subset on first run) ---------
     print(f"Loading Kd values from {INDEX_PATH} …")
     df_kd = load_kd_index()
@@ -87,7 +87,7 @@ def main(n_workers: int | None = None):
             print_cluster_statistics,
         )
 
-        rmsd_cutoff = 2.0
+        rmsd_cutoff = rmsd_cutoff
         print(f"\n{'='*60}")
         print(f"  Clustering (RMSD cutoff = {rmsd_cutoff} Å)")
         print(f"{'='*60}")
@@ -102,7 +102,8 @@ def main(n_workers: int | None = None):
         print_cluster_statistics(cluster_map)
 
         # Run clustered experiments
-        for config in CLUSTERED_EXPERIMENTS:
+        clustered_experiments = get_clustered_experiments(rmsd_cutoff=rmsd_cutoff)
+        for config in clustered_experiments:
             print(f"\n{'='*60}")
             print(f"  Experiment: {config.tag}")
             print(f"{'='*60}")
@@ -130,7 +131,7 @@ def main(n_workers: int | None = None):
 
     # --- baseline (default weights) metrics -----------------------------------
     all_experiments = list(DEFAULT_EXPERIMENTS) + (
-        list(CLUSTERED_EXPERIMENTS) if H5_DIR.is_dir() else []
+        list(get_clustered_experiments(rmsd_cutoff=rmsd_cutoff)) if H5_DIR.is_dir() else []
     )
     print(f"\n{'='*60}")
     print("  Baseline (Default Weights)")
@@ -167,8 +168,12 @@ if __name__ == "__main__":
         help="Number of parallel workers for clustering. "
              "Defaults to all CPUs. Set to 1 to disable parallelism.",
     )
+    parser.add_argument(
+        "--rmsd_cutoff", type=float, default=2.0,
+        help="RMSD cutoff for clustering. Defaults to 2.0 Å.",
+    )
     args = parser.parse_args()
 
-    df = main(n_workers=args.n_workers)
+    df = main(n_workers=args.n_workers, rmsd_cutoff=args.rmsd_cutoff)
     print(f"\nResulting DataFrame shape: {df.shape}")
     print(df[["pdb", "type", "total_score", "idelta_score", "kd_M", "log_kd"]].head(10))

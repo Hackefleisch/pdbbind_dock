@@ -157,12 +157,12 @@ DEFAULT_EXPERIMENTS: list[ExperimentConfig] = [
 ]
 
 # --- Clustered aggregation (requires pre-computed cluster map) ----------
-AGG_CLUSTERED = AggregationConfig("clustered", "clustered", {"rmsd_cutoff": 2.0})
-
-CLUSTERED_EXPERIMENTS: list[ExperimentConfig] = [
-    ExperimentConfig(AGG_CLUSTERED, terms)
-    for terms in _ALL_TERM_SELECTIONS
-]
+def get_clustered_experiments(rmsd_cutoff: float = 2.0) -> list[ExperimentConfig]:
+    agg = AggregationConfig(f"clustered_{rmsd_cutoff}", "clustered", {"rmsd_cutoff": rmsd_cutoff})
+    return [
+        ExperimentConfig(agg, terms)
+        for terms in _ALL_TERM_SELECTIONS
+    ]
 
 
 # ═══════════════════════════════════════════════════════════════════════

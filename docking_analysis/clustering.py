@@ -198,26 +198,24 @@ def _cache_path(cache_dir: Path, pdb_id: str, rmsd_cutoff: float) -> Path:
 def _build_h5_index_mapping(
     pose_types: np.ndarray,
     protocols: np.ndarray,
+    type_seq_ids: np.ndarray,
 ) -> tuple[list[int], list[bool]]:
-    """Map CSV rows to H5 indices via type + positional order."""
+    """Map CSV rows to H5 indices via type + explicit sequence ID."""
     type_to_h5: dict[str, list[int]] = {}
     for idx, proto in enumerate(protocols):
         type_to_h5.setdefault(proto, []).append(idx)
 
-    type_counters: dict[str, int] = {}
     pose_h5_indices: list[int] = []
     valid_mask: list[bool] = []
 
-    for t in pose_types:
-        counter = type_counters.get(t, 0)
+    for t, seq_id in zip(pose_types, type_seq_ids):
         h5_list = type_to_h5.get(t, [])
-        if counter < len(h5_list):
-            pose_h5_indices.append(h5_list[counter])
+        if seq_id < len(h5_list):
+            pose_h5_indices.append(h5_list[seq_id])
             valid_mask.append(True)
         else:
             pose_h5_indices.append(-1)
             valid_mask.append(False)
-        type_counters[t] = counter + 1
 
     return pose_h5_indices, valid_mask
 
@@ -228,8 +226,8 @@ def _cluster_single_pdb(args: tuple) -> tuple[str, list[Cluster] | None]:
     Parameters
     ----------
     args : tuple
-        ``(pdb_id, h5_dir, pose_types, pose_scores, rmsd_cutoff,
-          cache_dir, score_col)``
+        ``(pdb_id, h5_dir, pose_types, pose_seq_ids, pose_scores, rmsd_cutoff,
+          cache_dir)``
 
     Returns
     -------
@@ -237,7 +235,7 @@ def _cluster_single_pdb(args: tuple) -> tuple[str, list[Cluster] | None]:
     """
     import h5py
 
-    pdb_id, h5_dir, pose_types, pose_scores, rmsd_cutoff, cache_dir = args
+    pdb_id, h5_dir, pose_types, pose_seq_ids, pose_scores, rmsd_cutoff, cache_dir = args
     h5_dir = Path(h5_dir)
 
     h5_path = h5_dir / f"{pdb_id}.h5"
@@ -252,7 +250,7 @@ def _cluster_single_pdb(args: tuple) -> tuple[str, list[Cluster] | None]:
         return pdb_id, None
 
     # Map CSV rows → H5 indices
-    pose_h5_indices, valid_mask = _build_h5_index_mapping(pose_types, protocols)
+    pose_h5_indices, valid_mask = _build_h5_index_mapping(pose_types, protocols, pose_seq_ids)
 
     valid_h5 = [h for h, v in zip(pose_h5_indices, valid_mask) if v]
     valid_scores = np.array([s for s, v in zip(pose_scores, valid_mask) if v])
@@ -347,6 +345,7 @@ def cluster_all_pdbs(
             pdb_id,
             str(h5_dir),
             grp["type"].values,
+            grp["type_seq_id"].values,
             grp[score_col].values,
             rmsd_cutoff,
             str(cache_dir) if cache_dir is not None else None,
