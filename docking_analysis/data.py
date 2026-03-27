@@ -182,12 +182,16 @@ def create_filtered_subset(
     print(f"  Rows after filter : {len(df):,}")
     print(f"  Matching types    : {sorted(df['type'].unique())}")
 
+    print("Filtering out sub-optimal poses (total_score <= 0 & idelta_score <= 0) …")
+    df = df.loc[(df["total_score"] <= 0) & (df["idelta_score"] <= 0)].copy()
+    print(f"  Rows after score filter : {len(df):,}")
+
     print("Joining Kd values and dropping rows without Kd …")
     df = df.merge(df_kd, on="pdb", how="inner")
     print(f"  Rows with Kd      : {len(df):,}")
     print(f"  Unique PDB IDs    : {df['pdb'].nunique():,}")
 
-    csv_name = "pdbbind_relax_perturb_kd.csv"
+    csv_name = "pdbbind_relax_perturb_filtered_kd.csv"
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(csv_name, df.to_csv(index=False))
     print(f"  Filtered subset saved → {out_path}")
@@ -245,8 +249,8 @@ def aggregate_per_pdb(
     strategy : str
         ``"min"``            — single row with the lowest *score_col*.
         ``"mean_n"``         — mean of the *n* lowest *score_col* rows.
-        ``"filtered_mean"``  — mean over rows where both ``total_score <= 0``
-                               and ``score_col <= 0``.
+        ``"filtered_mean"``  — mean of all poses (all poses now pass the 
+                               non-positive idelta_score & total_score filter).
     n : int
         Used only when *strategy* is ``"mean_n"``.
     extra_cols : list[str] | None
@@ -281,11 +285,8 @@ def aggregate_per_pdb(
         )
 
     elif strategy == "filtered_mean":
-        valid = df.loc[
-            (df["total_score"] <= 0) & (df["idelta_score"] <= 0)
-        ].copy()
         result = (
-            valid.groupby("pdb", sort=False)[cols]
+            df.groupby("pdb", sort=False)[cols]
             .mean()
             .reset_index()
         )

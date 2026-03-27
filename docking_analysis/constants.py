@@ -13,7 +13,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 REPO_ROOT  = Path(__file__).resolve().parent.parent
 ZIP_PATH            = REPO_ROOT / "docking_stats" / "pdbbind_docking_data.zip"
-FILTERED_ZIP        = REPO_ROOT / "docking_stats" / "pdbbind_relax_perturb_kd.zip"
+FILTERED_ZIP        = REPO_ROOT / "docking_stats" / "pdbbind_relax_perturb_filtered_kd.zip"
 INDEX_PATH          = REPO_ROOT / "pdbbind_2020plus" / "INDEX_general_PL.2020R1.lst"
 OUTPUT_DIR          = REPO_ROOT / "figures"
 SCFX_WEIGHTS_PATH   = Path(__file__).resolve().parent / "scfx_weights.json"

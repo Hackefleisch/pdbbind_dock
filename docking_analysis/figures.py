@@ -219,10 +219,6 @@ def plot_idelta_vs_logkd(
 
     # Log stats for filtered_mean
     if agg.strategy == "filtered_mean":
-        n_valid = len(
-            df.loc[(df["total_score"] <= 0) & (df["idelta_score"] <= 0)]
-        )
-        print(f"  Poses used after score filter : {n_valid:,} / {len(df):,}")
         print(
             f"  PDB entries with surviving poses : "
             f"{len(plot_df):,} / {df['pdb'].nunique():,}"
