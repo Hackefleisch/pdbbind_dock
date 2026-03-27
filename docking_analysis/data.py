@@ -281,7 +281,9 @@ def aggregate_per_pdb(
         )
 
     elif strategy == "filtered_mean":
-        valid = df.loc[(df["total_score"] <= 0) & (df[score_col] <= 0)].copy()
+        valid = df.loc[
+            (df["total_score"] <= 0) & (df["idelta_score"] <= 0)
+        ].copy()
         result = (
             valid.groupby("pdb", sort=False)[cols]
             .mean()
@@ -301,31 +303,12 @@ def aggregate_per_pdb(
             clusters = cluster_map.get(pdb_id)
             if not clusters:
                 continue
+            # Sort the group ONCE — representative_idx is a rank in this order
+            grp_sorted = grp.sort_values(score_col)
+            n_rows = len(grp_sorted)
             for cluster in clusters:
-                # The representative_idx is the positional index within the
-                # sorted-by-score order used during clustering.  We need the
-                # representative's H5 row → but we stored the local index
-                # into the original pose list for this PDB.  Since the
-                # group is in the same order as the original pose list,
-                # we use representative_idx to locate the row.
                 rep_local = cluster.representative_idx
-                # Map from sorted order back to group order: the cluster
-                # stores indices into the argsort(scores) order.
-                # Instead, use representative_h5_idx to match via score.
-                # Simplest: the group rows are in CSV order which matches
-                # H5 order.  We need to find which group row corresponds
-                # to representative_h5_idx.
-                # For robustness, select the row whose idelta_score is
-                # the minimum among cluster members (the representative).
-                rep_h5 = cluster.representative_h5_idx
-                # Build a mapping from H5 index to group row position
-                # We know group rows align with H5 type-filtered rows,
-                # but we don't have the H5 index in the DataFrame.
-                # Workaround: the representative is the lowest-score
-                # pose in the cluster.  Among all group rows, it has
-                # the rank == representative_idx in the score-sorted order.
-                grp_sorted = grp.sort_values(score_col)
-                if rep_local < len(grp_sorted):
+                if rep_local < n_rows:
                     rep_row = grp_sorted.iloc[rep_local]
                     row_data = {"pdb": pdb_id, "sample_weight": 1.0}
                     for c in cols:

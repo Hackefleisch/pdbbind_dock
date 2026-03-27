@@ -157,6 +157,7 @@ def plot_idelta_vs_logkd(
     config: "ExperimentConfig",
     out_dir: Path = OUTPUT_DIR,
     scfx_json_path: Path = SCFX_WEIGHTS_PATH,
+    agg_kwargs: dict | None = None,
 ) -> Path:
     """
     Density-coloured scatter of log₁₀(Kd) vs. per-PDB aggregated
@@ -207,19 +208,37 @@ def plot_idelta_vs_logkd(
         df = df_sel
 
     # Aggregate per PDB
+    merged_kwargs = {**agg.params, **(agg_kwargs or {})}
     per_pdb = aggregate_per_pdb(
         df,
         score_col=score_col,
         strategy=agg.strategy,
-        **agg.params,
+        **merged_kwargs,
     )
     per_pdb = per_pdb.rename(columns={score_col: "agg_score"})
+
+    # For clustered aggregation, collapse multiple cluster rows per PDB
+    # into a single weighted-mean score so the scatter has one point per PDB.
+    if agg.strategy == "clustered" and "sample_weight" in per_pdb.columns:
+        per_pdb = (
+            per_pdb.groupby("pdb", sort=False)
+            .apply(
+                lambda g: pd.Series({
+                    "agg_score": np.average(
+                        g["agg_score"], weights=g["sample_weight"],
+                    ),
+                }),
+                include_groups=False,
+            )
+            .reset_index()
+        )
+
     plot_df = join_kd_columns(per_pdb, df)
 
     # Log stats for filtered_mean
     if agg.strategy == "filtered_mean":
         n_valid = len(
-            df.loc[(df["total_score"] <= 0) & (df[score_col] <= 0)]
+            df.loc[(df["total_score"] <= 0) & (df["idelta_score"] <= 0)]
         )
         print(f"  Poses used after score filter : {n_valid:,} / {len(df):,}")
         print(

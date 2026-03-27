@@ -108,7 +108,10 @@ def main(n_workers: int | None = None):
             print(f"{'='*60}")
 
             # Density scatter
-            plot_idelta_vs_logkd(df, config=config)
+            plot_idelta_vs_logkd(
+                df, config=config,
+                agg_kwargs={"cluster_map": cluster_map},
+            )
 
             # Train reweighting model (pass cluster_map via agg_kwargs)
             result = train_reweighting_model(
@@ -160,7 +163,7 @@ def main(n_workers: int | None = None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the docking reweighting pipeline.")
     parser.add_argument(
-        "--n-workers", type=int, default=None,
+        "--n_workers", type=int, default=None,
         help="Number of parallel workers for clustering. "
              "Defaults to all CPUs. Set to 1 to disable parallelism.",
     )
