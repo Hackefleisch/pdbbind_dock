@@ -14,6 +14,7 @@ Orchestrator script that ties together the ``docking_analysis`` package:
 """
 
 import numpy as np
+import pandas as pd
 
 from docking_analysis.constants import INDEX_PATH, OUTPUT_DIR
 from docking_analysis.data import (
@@ -23,6 +24,7 @@ from docking_analysis.data import (
 from docking_analysis.experiment import (
     DEFAULT_EXPERIMENTS,
     ResultsMatrix,
+    compute_baseline_metrics,
 )
 from docking_analysis.figures import (
     plot_energy_distributions,
@@ -69,9 +71,21 @@ def main():
         plot_predicted_vs_actual(y_all_true, y_all_pred, config=config)
         plot_weight_bar_chart(result.weights_df, config=config)
 
-    # --- results summary -----------------------------------------------------
+    # --- baseline (default weights) metrics -----------------------------------
     print(f"\n{'='*60}")
-    print("  Experiment Results Summary")
+    print("  Baseline (Default Weights)")
+    print(f"{'='*60}")
+    baseline_rows = []
+    for config in DEFAULT_EXPERIMENTS:
+        baseline_rows.append(compute_baseline_metrics(df, config))
+    baseline_df = pd.DataFrame(baseline_rows)
+    print(baseline_df.to_string(index=False))
+    baseline_df.to_csv(OUTPUT_DIR / "baseline_results.csv", index=False)
+    print(f"  Baseline results saved → {OUTPUT_DIR / 'baseline_results.csv'}")
+
+    # --- learned-weights results summary -------------------------------------
+    print(f"\n{'='*60}")
+    print("  Learned Weights Results")
     print(f"{'='*60}")
     print(matrix)
     matrix.save_csv(OUTPUT_DIR / "experiment_results.csv")

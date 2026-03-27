@@ -95,12 +95,65 @@ AGG_MEAN10        = AggregationConfig("mean10",        "mean_n",        {"n": 10
 AGG_FILTERED_MEAN = AggregationConfig("filtered_mean", "filtered_mean", {})
 
 # Term-selection presets
+#
+# Each preset builds cumulatively on the previous one:
+#   1. all_terms       — baseline, no changes
+#   2. combined_hbond  — sum hbond_bb_sc + hbond_sc → hbond_combined
+#   3. no_sol_pair     — (2) + drop fa_sol and fa_pair
+#   4. combined_vdw    — (3) + sum fa_atr + fa_rep → fa_vdw
+
 TERMS_ALL = TermSelectionConfig("all_terms")
 
-# Default experiment grid (reproduces current behaviour)
+TERMS_COMBINED_HBOND = TermSelectionConfig(
+    "combined_hbond",
+    combine={
+        "raw_delta_hbond_combined": [
+            "raw_delta_hbond_bb_sc",
+            "raw_delta_hbond_sc",
+        ],
+    },
+)
+
+TERMS_NO_SOL_PAIR = TermSelectionConfig(
+    "no_sol_pair",
+    exclude=[
+        "raw_delta_fa_sol",
+        "raw_delta_fa_pair",
+    ],
+    combine={
+        "raw_delta_hbond_combined": [
+            "raw_delta_hbond_bb_sc",
+            "raw_delta_hbond_sc",
+        ],
+    },
+)
+
+TERMS_COMBINED_VDW = TermSelectionConfig(
+    "combined_vdw",
+    exclude=[
+        "raw_delta_fa_sol",
+        "raw_delta_fa_pair",
+    ],
+    combine={
+        "raw_delta_hbond_combined": [
+            "raw_delta_hbond_bb_sc",
+            "raw_delta_hbond_sc",
+        ],
+        "raw_delta_fa_vdw": [
+            "raw_delta_fa_atr",
+            "raw_delta_fa_rep",
+        ],
+    },
+)
+
+_ALL_AGGREGATIONS = (AGG_MIN, AGG_MEAN10, AGG_FILTERED_MEAN)
+_ALL_TERM_SELECTIONS = (TERMS_ALL, TERMS_COMBINED_HBOND, TERMS_NO_SOL_PAIR, TERMS_COMBINED_VDW)
+
+# Default experiment grid: full cross-product (3 agg × 4 terms = 12 experiments)
 DEFAULT_EXPERIMENTS: list[ExperimentConfig] = [
-    ExperimentConfig(agg, TERMS_ALL)
-    for agg in (AGG_MIN, AGG_MEAN10, AGG_FILTERED_MEAN)
+    ExperimentConfig(agg, terms)
+    for agg in _ALL_AGGREGATIONS
+    for terms in _ALL_TERM_SELECTIONS
 ]
 
 
@@ -148,6 +201,131 @@ def apply_term_selection(
         cols.append(new_col)
 
     return df, cols
+
+
+def resolve_original_weights(
+    feature_cols: list[str],
+    scfx_data: dict[str, float],
+    config: TermSelectionConfig,
+) -> dict[str, float]:
+    """
+    Build a ``{feature_col: original_weight}`` mapping that correctly
+    handles combined columns.
+
+    For simple (non-combined) columns the weight is looked up directly
+    in *scfx_data*.  For combined columns the weight is the **mean** of
+    each constituent's original weight.  This is exact when the
+    constituent weights are equal and a reasonable approximation when
+    they differ.
+
+    Parameters
+    ----------
+    feature_cols : list[str]
+        Feature columns **after** :func:`apply_term_selection`.
+    scfx_data : dict[str, float]
+        Raw score-function weights keyed by clean term name
+        (e.g. ``"fa_atr"``).
+    config : TermSelectionConfig
+        The same config used with ``apply_term_selection`` (needed to
+        know which columns are combinations and their constituents).
+    """
+    weights: dict[str, float] = {}
+
+    for col in feature_cols:
+        if col in config.combine:
+            # Combined column → mean of constituent weights
+            constituents = config.combine[col]
+            const_weights = [
+                scfx_data.get(c.replace("raw_delta_", ""), 0.0)
+                for c in constituents
+            ]
+            weights[col] = (
+                sum(const_weights) / len(const_weights)
+                if const_weights else 0.0
+            )
+        else:
+            clean = col.replace("raw_delta_", "")
+            weights[col] = scfx_data.get(clean, 0.0)
+
+    return weights
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Baseline (default-weight) metrics
+# ═══════════════════════════════════════════════════════════════════════
+
+def compute_baseline_metrics(
+    df: pd.DataFrame,
+    config: ExperimentConfig,
+    scfx_json_path: Path | None = None,
+) -> dict:
+    """
+    Compute Pearson r and MAE for the **original** (scfx.json) weights.
+
+    For each experiment config, the score is computed as the
+    original-weight-weighted sum of the selected ``raw_delta_*`` terms
+    (or ``idelta_score`` directly for ``all_terms``), aggregated per PDB,
+    and compared against ``log_kd``.
+
+    Returns a dict with keys ``aggregation``, ``term_selection``,
+    ``r``, ``mae``, ``n``.
+    """
+    import json
+
+    from scipy import stats as sp_stats
+
+    from .constants import SCFX_WEIGHTS_PATH
+    from .data import aggregate_per_pdb, get_raw_delta_columns, join_kd_columns
+
+    if scfx_json_path is None:
+        scfx_json_path = SCFX_WEIGHTS_PATH
+
+    agg = config.aggregation
+    ts = config.term_selection
+    use_original = not ts.exclude and not ts.combine
+
+    if use_original:
+        score_col = "idelta_score"
+        df_work = df
+    else:
+        raw_delta_cols = get_raw_delta_columns(df)
+        df_sel, feature_cols = apply_term_selection(df, raw_delta_cols, ts)
+
+        scfx_data = {}
+        if scfx_json_path.exists():
+            with open(scfx_json_path, "r") as f:
+                scfx_data = json.load(f)
+
+        original_w = resolve_original_weights(feature_cols, scfx_data, ts)
+
+        score_col = "_recomputed_score"
+        df_sel[score_col] = sum(
+            df_sel[col] * original_w[col] for col in feature_cols
+        )
+        df_work = df_sel
+
+    per_pdb = aggregate_per_pdb(
+        df_work,
+        score_col=score_col,
+        strategy=agg.strategy,
+        **agg.params,
+    )
+    per_pdb = per_pdb.rename(columns={score_col: "agg_score"})
+    plot_df = join_kd_columns(per_pdb, df_work)
+
+    x = plot_df["log_kd"].to_numpy()
+    y = plot_df["agg_score"].to_numpy()
+
+    r = sp_stats.pearsonr(x, y).statistic
+    mae = float(np.mean(np.abs(x - y)))
+
+    return {
+        "aggregation": agg.name,
+        "term_selection": ts.name,
+        "r": r,
+        "mae": mae,
+        "n": len(x),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════

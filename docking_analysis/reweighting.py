@@ -208,7 +208,7 @@ def train_reweighting_model(
         "weight": w_orig,
     }).sort_values("weight", key=abs, ascending=False)
 
-    weights_path = out_dir / f"reweighting_{tag}_weights.csv"
+    weights_path = out_dir / f"weights_{tag}.csv"
     weights_df.to_csv(weights_path, index=False)
     print(f"  [{tag}] Weights saved → {weights_path}")
 

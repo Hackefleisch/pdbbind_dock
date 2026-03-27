@@ -15,6 +15,5 @@ h5_test/*
 *_h5/
 failed_logs/
 docking_stats/
-figures/*.png
+figures/*
 docking_analysis/__pycache__
-figures/*.csv

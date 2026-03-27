@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from .constants import OUTPUT_DIR
+from .constants import OUTPUT_DIR, SCFX_WEIGHTS_PATH
 from .data import aggregate_per_pdb, join_kd_columns
 
 
@@ -67,8 +67,9 @@ def density_scatter(
     order = density.argsort()
     x_s, y_s, d_s = x[order], y[order], density[order]
 
-    # --- Pearson r & linear fit ---------------------------------------------
+    # --- Pearson r, MAE & linear fit ----------------------------------------
     r, pval = stats.pearsonr(x, y)
+    mae = float(np.mean(np.abs(x - y)))
     slope, intercept, *_ = stats.linregress(x, y)
     x_line = np.linspace(x.min(), x.max(), 200)
     y_line = slope * x_line + intercept
@@ -96,7 +97,7 @@ def density_scatter(
     p_str = f"p-value = {pval:.2e}" if pval >= 1e-6 else "p-value ≈ 0"
     ax.text(
         0.05, 0.95,
-        f"Pearson r = {r:.3f}\n{p_str}\nn = {len(x):,}",
+        f"Pearson r = {r:.3f}\nMAE = {mae:.3f}\n{p_str}\nn = {len(x):,}",
         transform=ax.transAxes, va="top", ha="left", fontsize=10,
         bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="grey", alpha=0.8),
     )
@@ -155,34 +156,70 @@ def plot_idelta_vs_logkd(
     df: pd.DataFrame,
     config: "ExperimentConfig",
     out_dir: Path = OUTPUT_DIR,
+    scfx_json_path: Path = SCFX_WEIGHTS_PATH,
 ) -> Path:
     """
     Density-coloured scatter of log₁₀(Kd) vs. per-PDB aggregated
-    idelta_score, driven by *config*.
+    docking score, driven by *config*.
 
-    This replaces the former ``plot_min_idelta_vs_logkd``,
-    ``plot_mean10_idelta_vs_logkd``, and
-    ``plot_filtered_mean_idelta_vs_logkd`` functions.
+    When the term selection is **not** ``all_terms``, the score is
+    recomputed as the original-weight-weighted sum of only the selected
+    ``raw_delta_*`` terms.  This ensures the scatter actually reflects
+    the effect of combining / excluding terms.
+
+    For ``all_terms`` the pre-computed ``idelta_score`` column is used
+    directly (identical to the recomputed sum).
     """
-    from .experiment import ExperimentConfig, apply_term_selection
+    import json
+
+    from .data import get_raw_delta_columns
+    from .experiment import (
+        ExperimentConfig,
+        apply_term_selection,
+        resolve_original_weights,
+    )
 
     agg = config.aggregation
     tag = config.tag
+    ts = config.term_selection
+    use_original = not ts.exclude and not ts.combine  # all_terms → True
 
-    # Aggregate idelta_score per PDB
+    if use_original:
+        # Fast path: use the pre-computed idelta_score directly
+        score_col = "idelta_score"
+    else:
+        # Recompute score from selected terms × original weights
+        raw_delta_cols = get_raw_delta_columns(df)
+        df_sel, feature_cols = apply_term_selection(df, raw_delta_cols, ts)
+
+        # Load original scfx weights (with correct combined-term handling)
+        scfx_data = {}
+        if scfx_json_path.exists():
+            with open(scfx_json_path, "r") as f:
+                scfx_data = json.load(f)
+        original_w = resolve_original_weights(feature_cols, scfx_data, ts)
+
+        # Weighted sum → new score column
+        score_col = "_recomputed_score"
+        df_sel[score_col] = sum(
+            df_sel[col] * original_w[col] for col in feature_cols
+        )
+        df = df_sel
+
+    # Aggregate per PDB
     per_pdb = aggregate_per_pdb(
         df,
-        score_col="idelta_score",
+        score_col=score_col,
         strategy=agg.strategy,
         **agg.params,
     )
-    per_pdb = per_pdb.rename(columns={"idelta_score": "agg_idelta"})
+    per_pdb = per_pdb.rename(columns={score_col: "agg_score"})
     plot_df = join_kd_columns(per_pdb, df)
 
     # Log stats for filtered_mean
     if agg.strategy == "filtered_mean":
         n_valid = len(
-            df.loc[(df["total_score"] <= 0) & (df["idelta_score"] <= 0)]
+            df.loc[(df["total_score"] <= 0) & (df[score_col] <= 0)]
         )
         print(f"  Poses used after score filter : {n_valid:,} / {len(df):,}")
         print(
@@ -190,13 +227,13 @@ def plot_idelta_vs_logkd(
             f"{len(plot_df):,} / {df['pdb'].nunique():,}"
         )
 
-    y_label = _AGG_Y_LABELS.get(agg.strategy, "Aggregated idelta_score")
+    y_label = _AGG_Y_LABELS.get(agg.strategy, "Aggregated score")
     title_detail = _AGG_TITLES.get(agg.strategy, agg.name)
 
     out_path = out_dir / f"density_scatter_{tag}.png"
     return _save_density_figure(
         x=plot_df["log_kd"].to_numpy(),
-        y=plot_df["agg_idelta"].to_numpy(),
+        y=plot_df["agg_score"].to_numpy(),
         y_label=y_label,
         title=(
             "Docking score vs. binding affinity\n"
@@ -222,7 +259,7 @@ def plot_predicted_vs_actual(
     from .experiment import ExperimentConfig  # deferred to avoid circular import
 
     tag = config.tag
-    out_path = out_dir / f"reweighting_{tag}_predicted_vs_actual.png"
+    out_path = out_dir / f"scatter_predicted_{tag}.png"
     return _save_density_figure(
         x=y_true,
         y=y_pred,
@@ -240,7 +277,7 @@ def plot_weight_bar_chart(
     weights_df: pd.DataFrame,
     config: "ExperimentConfig",
     out_dir: Path = OUTPUT_DIR,
-    scfx_json_path: Path | None = None,
+    scfx_json_path: Path = SCFX_WEIGHTS_PATH,
 ) -> Path:
     """
     Horizontal bar chart comparing the top 15 learned energy-term weights
@@ -248,22 +285,22 @@ def plot_weight_bar_chart(
     """
     import json
 
-    from .experiment import ExperimentConfig  # deferred to avoid circular import
+    from .experiment import (  # deferred to avoid circular import
+        ExperimentConfig,
+        resolve_original_weights,
+    )
 
     tag = config.tag
 
-    if scfx_json_path is None:
-        scfx_json_path = out_dir / "scfx_weights.json"
-
     # Load original weights for ALL terms so we can sort by them
     all_terms = weights_df.copy()
-    original_weights: dict[str, float] = {t: 0.0 for t in all_terms["energy_term"]}
+    scfx_data = {}
     if scfx_json_path.exists():
         with open(scfx_json_path, "r") as f:
             scfx_data = json.load(f)
-            for raw_term in all_terms["energy_term"]:
-                clean_term = raw_term.replace("raw_delta_", "")
-                original_weights[raw_term] = scfx_data.get(clean_term, 0.0)
+    original_weights = resolve_original_weights(
+        list(all_terms["energy_term"]), scfx_data, config.term_selection,
+    )
 
     all_terms["original_weight"] = all_terms["energy_term"].map(original_weights)
 
@@ -299,7 +336,7 @@ def plot_weight_bar_chart(
     ax.legend()
     fig.tight_layout()
 
-    bar_path = out_dir / f"reweighting_{tag}_weights_bar.png"
+    bar_path = out_dir / f"bar_weights_{tag}.png"
     fig.savefig(bar_path, dpi=150)
     plt.close(fig)
     print(f"  Figure saved → {bar_path}")
