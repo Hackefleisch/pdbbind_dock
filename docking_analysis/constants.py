@@ -17,6 +17,8 @@ FILTERED_ZIP        = REPO_ROOT / "docking_stats" / "pdbbind_relax_perturb_kd.zi
 INDEX_PATH          = REPO_ROOT / "pdbbind_2020plus" / "INDEX_general_PL.2020R1.lst"
 OUTPUT_DIR          = REPO_ROOT / "figures"
 SCFX_WEIGHTS_PATH   = Path(__file__).resolve().parent / "scfx_weights.json"
+H5_DIR              = REPO_ROOT / "pdbbind_h5"
+CLUSTER_CACHE_DIR   = REPO_ROOT / "docking_stats" / "cluster_cache"
 
 # ---------------------------------------------------------------------------
 # Unit → Molar conversion factors

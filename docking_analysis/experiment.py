@@ -156,6 +156,14 @@ DEFAULT_EXPERIMENTS: list[ExperimentConfig] = [
     for terms in _ALL_TERM_SELECTIONS
 ]
 
+# --- Clustered aggregation (requires pre-computed cluster map) ----------
+AGG_CLUSTERED = AggregationConfig("clustered", "clustered", {"rmsd_cutoff": 2.0})
+
+CLUSTERED_EXPERIMENTS: list[ExperimentConfig] = [
+    ExperimentConfig(AGG_CLUSTERED, terms)
+    for terms in _ALL_TERM_SELECTIONS
+]
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Term-selection application
@@ -258,6 +266,7 @@ def compute_baseline_metrics(
     df: pd.DataFrame,
     config: ExperimentConfig,
     scfx_json_path: Path | None = None,
+    agg_kwargs: dict | None = None,
 ) -> dict:
     """
     Compute Pearson r and MAE for the **original** (scfx.json) weights.
@@ -304,11 +313,12 @@ def compute_baseline_metrics(
         )
         df_work = df_sel
 
+    merged_kwargs = {**agg.params, **(agg_kwargs or {})}
     per_pdb = aggregate_per_pdb(
         df_work,
         score_col=score_col,
         strategy=agg.strategy,
-        **agg.params,
+        **merged_kwargs,
     )
     per_pdb = per_pdb.rename(columns={score_col: "agg_score"})
     plot_df = join_kd_columns(per_pdb, df_work)

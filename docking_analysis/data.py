@@ -231,6 +231,7 @@ def aggregate_per_pdb(
     strategy: str = "min",
     n: int = 10,
     extra_cols: list[str] | None = None,
+    **kwargs,
 ) -> pd.DataFrame:
     """
     Aggregate *score_col* (and optionally *extra_cols*) per PDB entry.
@@ -286,6 +287,55 @@ def aggregate_per_pdb(
             .mean()
             .reset_index()
         )
+
+    elif strategy == "clustered":
+        # Requires a pre-computed cluster_map: {pdb: [Cluster, ...]}
+        cluster_map = kwargs.get("cluster_map")
+        if cluster_map is None:
+            raise ValueError(
+                "The 'clustered' strategy requires a 'cluster_map' kwarg."
+            )
+
+        rows = []
+        for pdb_id, grp in df.groupby("pdb", sort=False):
+            clusters = cluster_map.get(pdb_id)
+            if not clusters:
+                continue
+            for cluster in clusters:
+                # The representative_idx is the positional index within the
+                # sorted-by-score order used during clustering.  We need the
+                # representative's H5 row → but we stored the local index
+                # into the original pose list for this PDB.  Since the
+                # group is in the same order as the original pose list,
+                # we use representative_idx to locate the row.
+                rep_local = cluster.representative_idx
+                # Map from sorted order back to group order: the cluster
+                # stores indices into the argsort(scores) order.
+                # Instead, use representative_h5_idx to match via score.
+                # Simplest: the group rows are in CSV order which matches
+                # H5 order.  We need to find which group row corresponds
+                # to representative_h5_idx.
+                # For robustness, select the row whose idelta_score is
+                # the minimum among cluster members (the representative).
+                rep_h5 = cluster.representative_h5_idx
+                # Build a mapping from H5 index to group row position
+                # We know group rows align with H5 type-filtered rows,
+                # but we don't have the H5 index in the DataFrame.
+                # Workaround: the representative is the lowest-score
+                # pose in the cluster.  Among all group rows, it has
+                # the rank == representative_idx in the score-sorted order.
+                grp_sorted = grp.sort_values(score_col)
+                if rep_local < len(grp_sorted):
+                    rep_row = grp_sorted.iloc[rep_local]
+                    row_data = {"pdb": pdb_id, "sample_weight": 1.0}
+                    for c in cols:
+                        row_data[c] = rep_row[c]
+                    rows.append(row_data)
+
+        result = pd.DataFrame(rows) if rows else pd.DataFrame(
+            columns=["pdb"] + cols + ["sample_weight"]
+        )
+        return result
 
     else:
         raise ValueError(f"Unknown aggregation strategy: {strategy!r}")

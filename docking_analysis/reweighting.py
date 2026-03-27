@@ -76,6 +76,7 @@ def train_reweighting_model(
     train_frac: float = 0.8,
     seed: int = 42,
     out_dir: Path = OUTPUT_DIR,
+    agg_kwargs: dict | None = None,
 ) -> ExperimentResult:
     """
     Train a bias-free linear layer to predict log₁₀(Kd) from per-PDB
@@ -95,6 +96,10 @@ def train_reweighting_model(
         Random seed for reproducibility.
     out_dir : Path
         Directory for the weights CSV.
+    agg_kwargs : dict | None
+        Extra keyword arguments forwarded to
+        :func:`~docking_analysis.data.aggregate_per_pdb` (e.g.
+        ``{"cluster_map": ...}`` for the clustered strategy).
 
     Returns
     -------
@@ -124,13 +129,14 @@ def train_reweighting_model(
     # 3. Aggregate features per PDB
     # ------------------------------------------------------------------
     agg = config.aggregation
+    merged_kwargs = {**agg.params, **(agg_kwargs or {})}
     print(f"  [{tag}] Aggregating per PDB (strategy: {agg.name}) …")
     per_pdb_feats = aggregate_per_pdb(
         df_sel,
         score_col="idelta_score",
         strategy=agg.strategy,
         extra_cols=feature_cols,
-        **agg.params,
+        **merged_kwargs,
     )
 
     # ------------------------------------------------------------------
