@@ -17,3 +17,4 @@ failed_logs/
 docking_stats/
 figures/*.png
 docking_analysis/__pycache__
+figures/*.csv

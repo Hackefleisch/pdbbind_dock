@@ -4,11 +4,13 @@ extract_docking_stats.py
 Orchestrator script that ties together the ``docking_analysis`` package:
 
 1. Loads the pre-filtered PDBbind docking data (relax+perturb subset)
-   and Kd index.  On the first run the filtered CSV is created
-   automatically from the full zip (~20 M → ~2 M rows).
-2. Generates density-scatter figures (docking score vs. binding affinity).
-3. Trains linear reweighting models and plots the results.
-4. Generates an illustrative energy-distribution figure.
+   and Kd index.  On the first run the filtered zip is created
+   automatically from the full data (~20 M → ~2 M rows).
+2. Runs the experiment grid (aggregation × term selection):
+   - Density-scatter of aggregated idelta vs. log Kd
+   - Linear reweighting model training
+   - Predicted-vs-actual scatter and weight bar chart
+3. Generates an illustrative energy-distribution figure.
 """
 
 import numpy as np
@@ -18,11 +20,13 @@ from docking_analysis.data import (
     load_filtered_dataframe,
     load_kd_index,
 )
+from docking_analysis.experiment import (
+    DEFAULT_EXPERIMENTS,
+    ResultsMatrix,
+)
 from docking_analysis.figures import (
     plot_energy_distributions,
-    plot_filtered_mean_idelta_vs_logkd,
-    plot_mean10_idelta_vs_logkd,
-    plot_min_idelta_vs_logkd,
+    plot_idelta_vs_logkd,
     plot_predicted_vs_actual,
     plot_weight_bar_chart,
 )
@@ -43,22 +47,34 @@ def main():
         f"  |  Rows : {len(df):,}"
     )
 
-    # --- docking-score figures -----------------------------------------------
-    print("\nGenerating figures …")
-    plot_min_idelta_vs_logkd(df)
-    plot_mean10_idelta_vs_logkd(df)
-    plot_filtered_mean_idelta_vs_logkd(df)
+    # --- experiment grid -----------------------------------------------------
+    matrix = ResultsMatrix()
 
-    # --- reweighting models + their figures ----------------------------------
-    for strategy in ("min", "mean10", "filtered_mean"):
-        print(f"\nTraining ML reweighting model (strategy={strategy}) ...")
-        result = train_reweighting_model(df, strategy=strategy)
+    for config in DEFAULT_EXPERIMENTS:
+        print(f"\n{'='*60}")
+        print(f"  Experiment: {config.tag}")
+        print(f"{'='*60}")
 
-        y_all_true = np.concatenate([result["y_train"], result["y_test"]])
-        y_all_pred = np.concatenate([result["y_pred_train"], result["y_pred_test"]])
+        # Density scatter (no retraining — raw aggregated idelta vs Kd)
+        plot_idelta_vs_logkd(df, config=config)
 
-        plot_predicted_vs_actual(y_all_true, y_all_pred, strategy=strategy)
-        plot_weight_bar_chart(result["weights_df"], strategy=strategy)
+        # Train reweighting model
+        result = train_reweighting_model(df, config)
+        matrix.add(result)
+
+        # Reweighting figures
+        y_all_true = np.concatenate([result.y_train, result.y_test])
+        y_all_pred = np.concatenate([result.y_pred_train, result.y_pred_test])
+
+        plot_predicted_vs_actual(y_all_true, y_all_pred, config=config)
+        plot_weight_bar_chart(result.weights_df, config=config)
+
+    # --- results summary -----------------------------------------------------
+    print(f"\n{'='*60}")
+    print("  Experiment Results Summary")
+    print(f"{'='*60}")
+    print(matrix)
+    matrix.save_csv(OUTPUT_DIR / "experiment_results.csv")
 
     # --- illustrative energy-distribution figure -----------------------------
     print("\nGenerating illustrative energy-distribution figure …")
@@ -71,3 +87,4 @@ if __name__ == "__main__":
     df = main()
     print(f"\nResulting DataFrame shape: {df.shape}")
     print(df[["pdb", "type", "total_score", "idelta_score", "kd_M", "log_kd"]].head(10))
+

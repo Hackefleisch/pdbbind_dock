@@ -255,7 +255,10 @@ def aggregate_per_pdb(
 
     Returns
     -------
-    DataFrame with ``"pdb"`` plus the aggregated columns.
+    DataFrame with ``"pdb"``, ``"sample_weight"``, plus the aggregated
+    columns.  Current strategies always produce one row per PDB with
+    ``sample_weight = 1.0``.  Future strategies (e.g. clustered) may
+    return multiple rows per PDB with varying weights.
     """
     cols = [score_col] + (extra_cols or [])
 
@@ -287,6 +290,7 @@ def aggregate_per_pdb(
     else:
         raise ValueError(f"Unknown aggregation strategy: {strategy!r}")
 
+    result["sample_weight"] = 1.0
     return result
 
 

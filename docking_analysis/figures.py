@@ -131,94 +131,76 @@ def _save_density_figure(
 
 
 # ---------------------------------------------------------------------------
-# Figure 1 — min idelta vs log Kd
+# Aggregated idelta vs log Kd  (generic — driven by ExperimentConfig)
 # ---------------------------------------------------------------------------
-def plot_min_idelta_vs_logkd(
+
+# Human-readable labels for each aggregation strategy
+_AGG_Y_LABELS: dict[str, str] = {
+    "min":           "Min. $\\Delta\\Delta E$ score (idelta_score)",
+    "mean_n":        "Mean of N lowest idelta_score",
+    "filtered_mean": (
+        "Mean idelta_score\n"
+        "(total_score ≤ 0 & idelta_score ≤ 0 poses only)"
+    ),
+}
+
+_AGG_TITLES: dict[str, str] = {
+    "min":           "lowest idelta per PDB",
+    "mean_n":        "mean of N lowest idelta per PDB",
+    "filtered_mean": "non-positive score filter",
+}
+
+
+def plot_idelta_vs_logkd(
     df: pd.DataFrame,
-    out_path: Path = OUTPUT_DIR / "density_scatter_idelta_vs_logkd.png",
+    config: "ExperimentConfig",
+    out_dir: Path = OUTPUT_DIR,
 ) -> Path:
     """
-    Density-coloured scatter of log₁₀(Kd) vs. per-PDB **minimum**
-    idelta_score.
-    """
-    per_pdb = aggregate_per_pdb(df, score_col="idelta_score", strategy="min")
-    per_pdb = per_pdb.rename(columns={"idelta_score": "min_idelta_score"})
-    plot_df = join_kd_columns(per_pdb, df)
+    Density-coloured scatter of log₁₀(Kd) vs. per-PDB aggregated
+    idelta_score, driven by *config*.
 
-    return _save_density_figure(
-        x=plot_df["log_kd"].to_numpy(),
-        y=plot_df["min_idelta_score"].to_numpy(),
-        y_label="Min. $\\Delta\\Delta E$ score (idelta_score)",
-        title=(
-            "Docking score vs. binding affinity\n"
-            "(relax + perturb protocols, lowest idelta per PDB)"
-        ),
-        out_path=out_path,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Figure 2 — mean of 10 lowest idelta vs log Kd
-# ---------------------------------------------------------------------------
-def plot_mean10_idelta_vs_logkd(
-    df: pd.DataFrame,
-    out_path: Path = OUTPUT_DIR / "density_scatter_mean10idelta_vs_logkd.png",
-) -> Path:
+    This replaces the former ``plot_min_idelta_vs_logkd``,
+    ``plot_mean10_idelta_vs_logkd``, and
+    ``plot_filtered_mean_idelta_vs_logkd`` functions.
     """
-    Density-coloured scatter of log₁₀(Kd) vs. per-PDB **mean of the
-    10 lowest** idelta_score values.
-    """
+    from .experiment import ExperimentConfig, apply_term_selection
+
+    agg = config.aggregation
+    tag = config.tag
+
+    # Aggregate idelta_score per PDB
     per_pdb = aggregate_per_pdb(
-        df, score_col="idelta_score", strategy="mean_n", n=10,
+        df,
+        score_col="idelta_score",
+        strategy=agg.strategy,
+        **agg.params,
     )
-    per_pdb = per_pdb.rename(columns={"idelta_score": "mean10_idelta_score"})
+    per_pdb = per_pdb.rename(columns={"idelta_score": "agg_idelta"})
     plot_df = join_kd_columns(per_pdb, df)
 
+    # Log stats for filtered_mean
+    if agg.strategy == "filtered_mean":
+        n_valid = len(
+            df.loc[(df["total_score"] <= 0) & (df["idelta_score"] <= 0)]
+        )
+        print(f"  Poses used after score filter : {n_valid:,} / {len(df):,}")
+        print(
+            f"  PDB entries with surviving poses : "
+            f"{len(plot_df):,} / {df['pdb'].nunique():,}"
+        )
+
+    y_label = _AGG_Y_LABELS.get(agg.strategy, "Aggregated idelta_score")
+    title_detail = _AGG_TITLES.get(agg.strategy, agg.name)
+
+    out_path = out_dir / f"density_scatter_{tag}.png"
     return _save_density_figure(
         x=plot_df["log_kd"].to_numpy(),
-        y=plot_df["mean10_idelta_score"].to_numpy(),
-        y_label="Mean of 10 lowest idelta_score",
+        y=plot_df["agg_idelta"].to_numpy(),
+        y_label=y_label,
         title=(
             "Docking score vs. binding affinity\n"
-            "(relax + perturb protocols, mean of 10 lowest idelta per PDB)"
-        ),
-        out_path=out_path,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Figure 3 — filtered mean idelta vs log Kd
-# ---------------------------------------------------------------------------
-def plot_filtered_mean_idelta_vs_logkd(
-    df: pd.DataFrame,
-    out_path: Path = OUTPUT_DIR / "density_scatter_filtered_mean_idelta_vs_logkd.png",
-) -> Path:
-    """
-    Density-coloured scatter of log₁₀(Kd) vs. per-PDB **mean**
-    idelta_score, considering only poses where both ``total_score ≤ 0``
-    and ``idelta_score ≤ 0``.
-    """
-    per_pdb = aggregate_per_pdb(
-        df, score_col="idelta_score", strategy="filtered_mean",
-    )
-    per_pdb = per_pdb.rename(columns={"idelta_score": "mean_idelta_filtered"})
-
-    n_valid = len(
-        df.loc[(df["total_score"] <= 0) & (df["idelta_score"] <= 0)]
-    )
-    print(f"  Poses used after score filter : {n_valid:,} / {len(df):,}")
-
-    plot_df = join_kd_columns(per_pdb, df)
-    n_before = df["pdb"].nunique()
-    print(f"  PDB entries with surviving poses : {len(plot_df):,} / {n_before:,}")
-
-    return _save_density_figure(
-        x=plot_df["log_kd"].to_numpy(),
-        y=plot_df["mean_idelta_filtered"].to_numpy(),
-        y_label="Mean idelta_score\n(total_score ≤ 0 & idelta_score ≤ 0 poses only)",
-        title=(
-            "Docking score vs. binding affinity\n"
-            "(relax + perturb, non-positive score filter)"
+            f"({title_detail}, {config.term_selection.name})"
         ),
         out_path=out_path,
     )
@@ -230,14 +212,17 @@ def plot_filtered_mean_idelta_vs_logkd(
 def plot_predicted_vs_actual(
     y_true: np.ndarray,
     y_pred: np.ndarray,
-    strategy: str,
+    config: "ExperimentConfig",
     out_dir: Path = OUTPUT_DIR,
 ) -> Path:
     """
     Density-coloured scatter of actual vs. predicted log₁₀(Kd) from a
     reweighting model.
     """
-    out_path = out_dir / f"reweighting_{strategy}_predicted_vs_actual.png"
+    from .experiment import ExperimentConfig  # deferred to avoid circular import
+
+    tag = config.tag
+    out_path = out_dir / f"reweighting_{tag}_predicted_vs_actual.png"
     return _save_density_figure(
         x=y_true,
         y=y_pred,
@@ -245,7 +230,7 @@ def plot_predicted_vs_actual(
         y_label=r"Predicted $\log_{10}(K_d)$",
         title=(
             "Learned non-negative reweighting vs. binding affinity\n"
-            f"(linear model on {strategy} features)"
+            f"({config.aggregation.name}, {config.term_selection.name})"
         ),
         out_path=out_path,
     )
@@ -253,7 +238,7 @@ def plot_predicted_vs_actual(
 
 def plot_weight_bar_chart(
     weights_df: pd.DataFrame,
-    strategy: str,
+    config: "ExperimentConfig",
     out_dir: Path = OUTPUT_DIR,
     scfx_json_path: Path | None = None,
 ) -> Path:
@@ -262,6 +247,10 @@ def plot_weight_bar_chart(
     against their original values from a score-function JSON.
     """
     import json
+
+    from .experiment import ExperimentConfig  # deferred to avoid circular import
+
+    tag = config.tag
 
     if scfx_json_path is None:
         scfx_json_path = out_dir / "scfx_weights.json"
@@ -301,12 +290,16 @@ def plot_weight_bar_chart(
     ax.set_yticks(y_pos)
     ax.set_yticklabels(clean_labels)
     ax.set_xlabel("Weight value", fontsize=11)
-    ax.set_title("Top Learned vs. Original Energy Terms", fontsize=11)
+    ax.set_title(
+        f"Top Learned vs. Original Energy Terms\n"
+        f"({config.aggregation.name}, {config.term_selection.name})",
+        fontsize=11,
+    )
     ax.invert_yaxis()
     ax.legend()
     fig.tight_layout()
 
-    bar_path = out_dir / f"reweighting_{strategy}_weights_bar.png"
+    bar_path = out_dir / f"reweighting_{tag}_weights_bar.png"
     fig.savefig(bar_path, dpi=150)
     plt.close(fig)
     print(f"  Figure saved → {bar_path}")
