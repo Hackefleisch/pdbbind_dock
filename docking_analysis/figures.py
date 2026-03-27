@@ -179,20 +179,33 @@ def plot_idelta_vs_logkd(
         apply_term_selection,
         resolve_original_weights,
     )
+    from .reweighting import _collapse_weighted_features
 
     agg = config.aggregation
     tag = config.tag
     ts = config.term_selection
     use_original = not ts.exclude and not ts.combine  # all_terms → True
 
-    if use_original:
-        # Fast path: use the pre-computed idelta_score directly
-        score_col = "idelta_score"
-    else:
-        # Recompute score from selected terms × original weights
-        raw_delta_cols = get_raw_delta_columns(df)
-        df_sel, feature_cols = apply_term_selection(df, raw_delta_cols, ts)
+    raw_delta_cols = get_raw_delta_columns(df)
+    df_sel, feature_cols = apply_term_selection(df, raw_delta_cols, ts)
 
+    merged_kwargs = {**agg.params, **(agg_kwargs or {})}
+    per_pdb = aggregate_per_pdb(
+        df_sel,
+        score_col="idelta_score",
+        strategy=agg.strategy,
+        extra_cols=feature_cols,
+        **merged_kwargs,
+    )
+
+    plot_df = join_kd_columns(per_pdb, df_sel)
+    plot_df = plot_df.dropna(subset=feature_cols)
+    # Collapse both features and the score itself!
+    plot_df = _collapse_weighted_features(plot_df, feature_cols + ["idelta_score"])
+
+    if use_original:
+        plot_df["agg_score"] = plot_df["idelta_score"]
+    else:
         # Load original scfx weights (with correct combined-term handling)
         scfx_data = {}
         if scfx_json_path.exists():
@@ -200,40 +213,9 @@ def plot_idelta_vs_logkd(
                 scfx_data = json.load(f)
         original_w = resolve_original_weights(feature_cols, scfx_data, ts)
 
-        # Weighted sum → new score column
-        score_col = "_recomputed_score"
-        df_sel[score_col] = sum(
-            df_sel[col] * original_w[col] for col in feature_cols
+        plot_df["agg_score"] = sum(
+            plot_df[col] * original_w[col] for col in feature_cols
         )
-        df = df_sel
-
-    # Aggregate per PDB
-    merged_kwargs = {**agg.params, **(agg_kwargs or {})}
-    per_pdb = aggregate_per_pdb(
-        df,
-        score_col=score_col,
-        strategy=agg.strategy,
-        **merged_kwargs,
-    )
-    per_pdb = per_pdb.rename(columns={score_col: "agg_score"})
-
-    # For clustered aggregation, collapse multiple cluster rows per PDB
-    # into a single weighted-mean score so the scatter has one point per PDB.
-    if agg.strategy == "clustered" and "sample_weight" in per_pdb.columns:
-        per_pdb = (
-            per_pdb.groupby("pdb", sort=False)
-            .apply(
-                lambda g: pd.Series({
-                    "agg_score": np.average(
-                        g["agg_score"], weights=g["sample_weight"],
-                    ),
-                }),
-                include_groups=False,
-            )
-            .reset_index()
-        )
-
-    plot_df = join_kd_columns(per_pdb, df)
 
     # Log stats for filtered_mean
     if agg.strategy == "filtered_mean":

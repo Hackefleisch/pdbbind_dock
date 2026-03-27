@@ -285,6 +285,7 @@ def compute_baseline_metrics(
 
     from .constants import SCFX_WEIGHTS_PATH
     from .data import aggregate_per_pdb, get_raw_delta_columns, join_kd_columns
+    from .reweighting import _collapse_weighted_features
 
     if scfx_json_path is None:
         scfx_json_path = SCFX_WEIGHTS_PATH
@@ -293,35 +294,36 @@ def compute_baseline_metrics(
     ts = config.term_selection
     use_original = not ts.exclude and not ts.combine
 
-    if use_original:
-        score_col = "idelta_score"
-        df_work = df
-    else:
-        raw_delta_cols = get_raw_delta_columns(df)
-        df_sel, feature_cols = apply_term_selection(df, raw_delta_cols, ts)
+    # ALWAYS aggregate first using idelta_score (like train_reweighting_model)
+    raw_delta_cols = get_raw_delta_columns(df)
+    df_sel, feature_cols = apply_term_selection(df, raw_delta_cols, ts)
 
+    merged_kwargs = {**agg.params, **(agg_kwargs or {})}
+    per_pdb = aggregate_per_pdb(
+        df_sel,
+        score_col="idelta_score",
+        strategy=agg.strategy,
+        extra_cols=feature_cols,
+        **merged_kwargs,
+    )
+
+    plot_df = join_kd_columns(per_pdb, df_sel)
+    plot_df = plot_df.dropna(subset=feature_cols)
+    # Collapse both features and the score itself!
+    plot_df = _collapse_weighted_features(plot_df, feature_cols + ["idelta_score"])
+
+    if use_original:
+        plot_df["agg_score"] = plot_df["idelta_score"]
+    else:
         scfx_data = {}
         if scfx_json_path.exists():
             with open(scfx_json_path, "r") as f:
                 scfx_data = json.load(f)
 
         original_w = resolve_original_weights(feature_cols, scfx_data, ts)
-
-        score_col = "_recomputed_score"
-        df_sel[score_col] = sum(
-            df_sel[col] * original_w[col] for col in feature_cols
+        plot_df["agg_score"] = sum(
+            plot_df[col] * original_w[col] for col in feature_cols
         )
-        df_work = df_sel
-
-    merged_kwargs = {**agg.params, **(agg_kwargs or {})}
-    per_pdb = aggregate_per_pdb(
-        df_work,
-        score_col=score_col,
-        strategy=agg.strategy,
-        **merged_kwargs,
-    )
-    per_pdb = per_pdb.rename(columns={score_col: "agg_score"})
-    plot_df = join_kd_columns(per_pdb, df_work)
 
     x = plot_df["log_kd"].to_numpy()
     y = plot_df["agg_score"].to_numpy()
