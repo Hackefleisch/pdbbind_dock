@@ -132,7 +132,7 @@ class PDBRinterface:
 
 if __name__ == '__main__':
 
-    results = PDBRinterface('h5_test')
+    results = PDBRinterface('data/h5_test')
     res = results.get_result('5k00')
     columns = ['total_score', 'idelta_score', 'rmsd_to_crystal', 'rmsd_to_input', 'prepare_time']
     print(res.relax_df[res.relax_df.type == 'relax'][columns])

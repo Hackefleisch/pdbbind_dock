@@ -12,13 +12,14 @@ from pathlib import Path
 # Paths
 # ---------------------------------------------------------------------------
 REPO_ROOT  = Path(__file__).resolve().parent.parent
-ZIP_PATH            = REPO_ROOT / "docking_stats" / "pdbbind_docking_data.zip"
-FILTERED_ZIP        = REPO_ROOT / "docking_stats" / "pdbbind_relax_perturb_filtered_kd_v2.zip"
-INDEX_PATH          = REPO_ROOT / "pdbbind_2020plus" / "INDEX_general_PL.2020R1.lst"
-OUTPUT_DIR          = REPO_ROOT / "figures"
+DATA_DIR            = REPO_ROOT / "data"
+ZIP_PATH            = DATA_DIR / "docking_stats" / "pdbbind_docking_data.zip"
+FILTERED_ZIP        = DATA_DIR / "docking_stats" / "pdbbind_relax_perturb_filtered_kd_v2.zip"
+INDEX_PATH          = DATA_DIR / "pdbbind_2020plus" / "INDEX_general_PL.2020R1.lst"
+OUTPUT_DIR          = DATA_DIR / "figures"
 SCFX_WEIGHTS_PATH   = Path(__file__).resolve().parent / "scfx_weights.json"
-H5_DIR              = REPO_ROOT / "pdbbind_h5"
-CLUSTER_CACHE_DIR   = REPO_ROOT / "docking_stats" / "cluster_cache_filtered_v2"
+H5_DIR              = DATA_DIR / "pdbbind_h5"
+CLUSTER_CACHE_DIR   = DATA_DIR / "docking_stats" / "cluster_cache_filtered_v2"
 
 # ---------------------------------------------------------------------------
 # Unit → Molar conversion factors

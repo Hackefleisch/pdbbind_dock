@@ -1,20 +1,16 @@
+# Python
 __pycache__/
 *.pyc
-/pdbbind_2020
+
+# All inputs, docking outputs, caches and generated figures live under data/
+# (large, not version-controlled). See CLAUDE.md.
+/data/
+
+# Stray smoke-test / scratch artifacts written to the repo root
 /*.pdb
+/*.sdf
 /*.pickle
 /*.png
 /*.zarr
-/pdbbind_rosetta
-pdbbind_rosetta.csv
-/pdbbind_2020plus
-/posebusters_paper_data
-/pdbbind_cleaned
 log.txt
 error.txt
-test_out/*
-h5_test/*
-*_h5/
-failed_logs/
-docking_stats/
-figures/*

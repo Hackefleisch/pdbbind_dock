@@ -30,10 +30,13 @@ docking_analysis/        Phase-2 analysis package (see "Analysis" below)
 extract_docking_stats.py Phase-2 entry point (stays at repo root — imports docking_analysis)
 notebooks/               exploratory / extraction notebooks
 scripts/                 run_*.slurm, run_local.sh, h5_size.py
-2016_core_set/           CASF-2016 split definition files
-failed_pdb_ids/          per-benchmark lists of complexes that failed to dock
-<data dirs>              large, git-ignored — see "Data layout"
+reference/               tracked reference data (2016_core_set/, failed_pdb_ids/)
+data/                    ALL inputs, docking outputs, caches, figures — git-ignored
 ```
+
+Everything large or generated lives under **`data/`** (a single git-ignored
+parent — see "Data layout"). Code, scripts, and small tracked reference lists
+are the only things at the repo root.
 
 **Run entry points as modules from the repo root** so the `docking` package
 resolves, e.g. `python -m docking.main --help`. The `docking_analysis` package
@@ -64,8 +67,8 @@ and `extract_docking_stats.py` rely on being run from the repo root too
   Run: `uv run extract_docking_stats.py [--n_workers N] [--rmsd_cutoff 2.0]`.
 - [docking_analysis/](docking_analysis/):
   - `constants.py` — **all paths, regexes, unit conversions live here. Start here.**
-    Paths are computed from `REPO_ROOT` (the package's parent dir), so the
-    package must stay at the repo root.
+    Paths are computed as `REPO_ROOT / "data" / …` (via the `DATA_DIR` constant),
+    so the package must stay at the repo root and the data lives under `data/`.
   - `data.py` — load/filter dataframes, per-PDB aggregation.
   - `clustering.py` — RMSD-based pose clustering (cached under `docking_stats/`);
     lazily imports `docking.result.Result` to read the H5 files.
@@ -96,7 +99,10 @@ active Rosetta energy term. Inspect any file with `uv run scripts/h5_size.py <fi
 
 ## Data layout
 
-| Path | Size | Role |
+Everything below lives under **`data/`** (git-ignored). On the HPC cluster the
+SLURM scripts expect the same names under `$WORKSPACE/data/`.
+
+| Path (under `data/`) | Size | Role |
 |------|------|------|
 | `pdbbind_2020plus/` | 16 G | Raw PDBbind v2020 download; source of `INDEX_general_PL.2020R1.lst` (Kd values). |
 | `pdbbind_cleaned/` | 2.5 G | Cleaned docking **inputs** (`<pdb>_protein.pdb` + `<pdb>_ligand.sdf`) + `index.txt`. What docking reads. |
@@ -105,7 +111,11 @@ active Rosetta energy term. Inspect any file with `uv run scripts/h5_size.py <fi
 | `posebuster_h5/` `astex_h5/` | 14 G / 3.2 G | Docking output for the other two sets. |
 | `docking_stats/` | 3.3 G | Extracted dataframe zips + `cluster_cache_filtered_v2/` consumed by analysis. |
 | `figures/` | — | Generated figures (regenerated; safe to clear). |
-| `pdbbind_rosetta.csv` | 24 M | Legacy summary table; kept on disk but **untracked** (git-ignored). |
+| `h5_test/` | — | Scratch output of the local smoke test. |
+| `pdbbind_rosetta.csv` | 24 M | Legacy summary table; kept on disk but untracked. |
+
+Tracked reference lists (CASF-2016 splits, failed-id lists) live outside `data/`
+in **`reference/`**.
 
 ## Environment
 
@@ -115,7 +125,7 @@ active Rosetta energy term. Inspect any file with `uv run scripts/h5_size.py <fi
 - PyRosetta init flags used throughout:
   `-in:auto_setup_metals -ex1 -ex2 -restore_pre_talaris_2013_behavior true`
 - Local docking smoke test: `bash scripts/run_local.sh`, or
-  `python -m docking.runner` (its `__main__` docks `5k00` into `h5_test/`).
+  `python -m docking.runner` (its `__main__` docks `5k00` into `data/h5_test/`).
 
 ## Conventions & gotchas
 

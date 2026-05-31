@@ -296,7 +296,7 @@ def mol_result( rdkit_mol, pdb_str, atmname_to_index ):
 
 if __name__ == '__main__':
 
-    mol = load_ligand(lig_file='pdbbind_cleaned/10gs/10gs_ligand.sdf')
+    mol = load_ligand(lig_file='data/pdbbind_cleaned/10gs/10gs_ligand.sdf')
 
     mol = generate_conformers(mol)
 

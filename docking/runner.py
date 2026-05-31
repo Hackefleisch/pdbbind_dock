@@ -567,10 +567,10 @@ if __name__ == '__main__':
 
     try:
         r = Runner(
-            pdbbind_path='pdbbind_cleaned',
+            pdbbind_path='data/pdbbind_cleaned',
             pdb='5k00',
             protocol_paths=['docking/xml_protocols/docking_std.xml'],
-            output_dir='h5_test'
+            output_dir='data/h5_test'
         )
         r.run(
             n_relax=0,

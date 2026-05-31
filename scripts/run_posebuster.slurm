@@ -12,7 +12,7 @@
 
 WORKSPACE="/data/horse/ws/paei790f-pdbbind_dock"
 VENV_PYTHON="$WORKSPACE/pdbbind_dock/.venv/bin/python"
-DATA_DIR="$WORKSPACE/posebusters_paper_data/posebusters_benchmark_set"
+DATA_DIR="$WORKSPACE/data/posebusters_paper_data/posebusters_benchmark_set"
 
 # cd to the repo root so `-m docking.main` resolves the package
 cd "$WORKSPACE/pdbbind_dock" || exit 1
@@ -30,7 +30,7 @@ srun  "$VENV_PYTHON" -m docking.main \
     --n_relax 10 \
     --n_relax_ligaway 10 \
     --n_dock 300 \
-    --outdir "$WORKSPACE/posebuster_h5" \
+    --outdir "$WORKSPACE/data/posebuster_h5" \
     --pdbbind "$DATA_DIR" \
     --pdb_file "$DATA_DIR/posebusters_benchmark_set_ids.txt" \
     --pdb_index "$SLURM_ARRAY_TASK_ID" \
