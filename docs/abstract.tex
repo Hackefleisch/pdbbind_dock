@@ -1,0 +1,50 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+
+\setlength{\emergencystretch}{2em}
+
+\title{\vspace{-1.5em}Physics-based protein--ligand docking at scale:\\
+RosettaLigand samples near-native poses but cannot reliably rank them}
+\author{%
+  Paul Eisenhuth\textsuperscript{1,$\ast$}, Luca Friebe\textsuperscript{1,$\ast$},
+  Josephine Eboh\textsuperscript{1},
+  Chris Jurich\textsuperscript{2}, Rocco Moretti\textsuperscript{2},
+  Jens Meiler\textsuperscript{1,2}\\[0.7em]
+  {\small\textsuperscript{1}Leipzig University \qquad
+   \textsuperscript{2}Vanderbilt University}\\[0.3em]
+  {\small\textsuperscript{$\ast$}These authors contributed equally.}}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-2.5em}
+
+\begin{center}
+\large\textbf{Abstract}
+\end{center}
+
+\noindent
+RosettaLigand is a popular physics-based tool for predicting how a drug-like
+molecule binds to a protein. Many researchers rely on it, but no one has tested
+carefully how well it actually works across large, modern benchmark sets. We ran
+the largest such test so far, re-docking thousands of protein--ligand complexes
+from three standard datasets (PDBbind, Astex Diverse, and PoseBusters) and
+recording every predicted pose along with its energy scores. We find that
+RosettaLigand is very good at \emph{finding} correct binding poses---for most
+complexes, a near-correct pose is among its predictions, often beating recent
+deep-learning methods. The problem is \emph{picking} the right one: its scoring
+function frequently rates a wrong pose higher than the correct one. We tried to
+fix this by re-weighting the energy terms and training machine-learning models to
+score poses, but the improvements were small. A closer look at the energy
+landscape suggests why: there are many different poses with almost identical
+energy scores, so the current scoring cannot reliably tell them apart. We also
+examine how well the scores predict actual binding strength, and we release a
+large dataset of scored, energy-minimised structures for others to build on.
+\emph{(Work in progress.)}
+
+\end{document}
