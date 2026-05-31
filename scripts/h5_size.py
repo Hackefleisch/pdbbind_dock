@@ -74,6 +74,6 @@ def inspect_h5(path):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: uv run inspect_h5.py <file.h5>")
+        print("Usage: uv run scripts/h5_size.py <file.h5>")
     else:
         inspect_h5(sys.argv[1])

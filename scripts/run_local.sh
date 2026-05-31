@@ -6,7 +6,10 @@ set -e
 run_docking() {
     ulimit -v 6000000
 
-    uv run /media/iwe20/DataSSD/pdbbind_dock/main.py \
+    # cd to the repo root so `-m docking.main` resolves the package
+    cd /media/iwe20/DataSSD/pdbbind_dock || exit 1
+
+    uv run python -m docking.main \
         --n_relax 0 \
         --n_relax_ligaway 0 \
         --n_dock 1 \
@@ -14,7 +17,7 @@ run_docking() {
         --pdbbind /media/iwe20/DataSSD/pdbbind_dock/pdbbind_cleaned \
         --pdb_file /media/iwe20/DataSSD/pdbbind_dock/pdbbind_cleaned/index.txt \
         --pdb_index "$1" \
-        --protocols /media/iwe20/DataSSD/pdbbind_dock/xml_protocols/docking_perturb.xml
+        --protocols /media/iwe20/DataSSD/pdbbind_dock/docking/xml_protocols/docking_perturb.xml
 }
 
 export -f run_docking

@@ -6,7 +6,7 @@ from rdkit import Chem
 import copy
 import zlib
 
-from load_ligand import mol_result
+from docking.load_ligand import mol_result
 
 def pdb_result( orig_pdb_str, update_pdb_strarr ):
     """
@@ -150,13 +150,13 @@ if __name__ == '__main__':
             print(key, real_delta[key], relax[key])
 
     from pyrosetta import *
-    from load_ligand import pose_with_ligand
+    from docking.load_ligand import pose_with_ligand
 
     pyrosetta.init(options='-in:auto_setup_metals -ex1 -ex2 -restore_pre_talaris_2013_behavior true -out:levels all:300', silent=False)
 
     pose = pose_with_ligand(res.docked_pdb(0), res.docked_mol(0))
 
-    xml_objects = rosetta.protocols.rosetta_scripts.XmlObjects.create_from_file('xml_protocols/docking_std.xml')
+    xml_objects = rosetta.protocols.rosetta_scripts.XmlObjects.create_from_file('docking/xml_protocols/docking_std.xml')
     scfx = xml_objects.get_score_function("hard_rep")
 
     print(scfx(pose), res.docking_df.iloc[0].total_score)

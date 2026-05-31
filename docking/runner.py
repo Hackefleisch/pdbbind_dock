@@ -5,7 +5,7 @@ from pyrosetta import *
 from statistics import mean
 import pandas as pd
 
-from load_ligand import load_ligand, rdkit_to_mutable_res, moltomolblock, generate_conformers, pose_with_ligand, mol_result
+from docking.load_ligand import load_ligand, rdkit_to_mutable_res, moltomolblock, generate_conformers, pose_with_ligand, mol_result
 
 import h5py
 import json
@@ -569,7 +569,7 @@ if __name__ == '__main__':
         r = Runner(
             pdbbind_path='pdbbind_cleaned',
             pdb='5k00',
-            protocol_paths=['xml_protocols/docking_std.xml'],
+            protocol_paths=['docking/xml_protocols/docking_std.xml'],
             output_dir='h5_test'
         )
         r.run(

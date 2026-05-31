@@ -14,9 +14,10 @@ WORKSPACE="/data/horse/ws/paei790f-pdbbind_dock"
 VENV_PYTHON="$WORKSPACE/pdbbind_dock/.venv/bin/python"
 DATA_DIR="$WORKSPACE/posebusters_paper_data/posebusters_benchmark_set"
 
-cd "$WORKSPACE" || exit 1
+# cd to the repo root so `-m docking.main` resolves the package
+cd "$WORKSPACE/pdbbind_dock" || exit 1
 
-mkdir -p posebuster_logs
+mkdir -p "$WORKSPACE/posebuster_logs"
 
 if [ ! -d "$DATA_DIR" ]; then
     echo "Error: Data directory $DATA_DIR not accessible on node $(hostname)"
@@ -25,7 +26,7 @@ fi
 
 echo "Running Task ID: $SLURM_ARRAY_TASK_ID on node $(hostname)"
 
-srun  "$VENV_PYTHON" "$WORKSPACE/pdbbind_dock/main.py" \
+srun  "$VENV_PYTHON" -m docking.main \
     --n_relax 10 \
     --n_relax_ligaway 10 \
     --n_dock 300 \
@@ -34,5 +35,5 @@ srun  "$VENV_PYTHON" "$WORKSPACE/pdbbind_dock/main.py" \
     --pdb_file "$DATA_DIR/posebusters_benchmark_set_ids.txt" \
     --pdb_index "$SLURM_ARRAY_TASK_ID" \
     --protocols  \
-        "$WORKSPACE/pdbbind_dock/xml_protocols/docking_perturb.xml" \
-        "$WORKSPACE/pdbbind_dock/xml_protocols/docking_std.xml"
+        "$WORKSPACE/pdbbind_dock/docking/xml_protocols/docking_perturb.xml" \
+        "$WORKSPACE/pdbbind_dock/docking/xml_protocols/docking_std.xml"

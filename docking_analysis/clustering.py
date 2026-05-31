@@ -119,9 +119,10 @@ def cluster_poses_for_pdb(
     list[Cluster]
         One :class:`Cluster` per structural cluster found.
     """
-    # Lazy import to avoid loading RDKit / h5py at module level
+    # Lazy import to avoid loading RDKit / h5py at module level.
+    # h5_dir.parent is the repo root, which makes the `docking` package importable.
     sys.path.insert(0, str(h5_dir.parent))
-    from data import Result
+    from docking.result import Result
 
     h5_path = h5_dir / f"{pdb_id}.h5"
     if not h5_path.exists():
