@@ -28,7 +28,8 @@ docking_analysis/    Phase-2 analysis package (paths, data, clustering,
                      experiments, reweighting, figures)
 extract_docking_stats.py   Phase-2 entry point
 notebooks/           extraction + exploratory notebooks
-scripts/             run_*.slurm, run_local.sh, h5_size.py
+scripts/             run_*.slurm, run_local.sh, filter_pdbbind.py, h5_size.py
+docs/                methods-level documentation (feeds the paper)
 reference/           tracked reference lists (CASF-2016 splits, failed ids)
 data/                all inputs, docking outputs, caches, figures (git-ignored)
 ```
@@ -52,7 +53,10 @@ uv run extract_docking_stats.py --help
 ## Phase 1 — docking
 
 Inputs live under `data/` (`data/pdbbind_cleaned/<pdb>/<pdb>_protein.pdb` +
-`_ligand.sdf`, plus an `index.txt` list); outputs go to `data/<set>_h5/`.
+`_ligand.sdf`, plus an `index.txt` list); outputs go to `data/<set>_h5/`. The
+PDBbind inputs are filtered from the raw download by
+[`scripts/filter_pdbbind.py`](scripts/filter_pdbbind.py) — the filters are
+documented in [docs/dataset_preparation.md](docs/dataset_preparation.md).
 
 - **Cluster:** submit the SLURM array jobs in `scripts/`
   (`run_all.slurm`, `run_astex.slurm`, `run_posebuster.slurm`). They expect the

@@ -29,7 +29,8 @@ docking/                 Phase-1 docking engine (Python package)
 docking_analysis/        Phase-2 analysis package (see "Analysis" below)
 extract_docking_stats.py Phase-2 entry point (stays at repo root — imports docking_analysis)
 notebooks/               exploratory / extraction notebooks
-scripts/                 run_*.slurm, run_local.sh, h5_size.py
+scripts/                 run_*.slurm, run_local.sh, filter_pdbbind.py, h5_size.py
+docs/                    methods-level documentation (feeds the paper)
 reference/               tracked reference data (2016_core_set/, failed_pdb_ids/)
 data/                    ALL inputs, docking outputs, caches, figures — git-ignored
 ```
@@ -58,6 +59,9 @@ and `extract_docking_stats.py` rely on being run from the repo root too
   `run_astex.slurm`, `run_posebuster.slurm`, and `run_local.sh`
   (GNU parallel, local smoke test). The SLURM scripts `cd` into the repo and run
   the cluster venv's Python directly as `$VENV_PYTHON -m docking.main` (no `uv`).
+- The docking **inputs** under `data/pdbbind_cleaned/` are produced from the raw
+  PDBbind download by [scripts/filter_pdbbind.py](scripts/filter_pdbbind.py);
+  the filters are documented in [docs/dataset_preparation.md](docs/dataset_preparation.md).
 
 ## Phase 2 — Analysis
 
