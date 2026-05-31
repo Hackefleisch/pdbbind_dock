@@ -39,7 +39,7 @@ parent — see "Data layout"). Code, scripts, and small tracked reference lists
 are the only things at the repo root.
 
 **Run entry points as modules from the repo root** so the `docking` package
-resolves, e.g. `python -m docking.main --help`. The `docking_analysis` package
+resolves, e.g. `uv run python -m docking.main --help`. The `docking_analysis` package
 and `extract_docking_stats.py` rely on being run from the repo root too
 (cwd = repo root puts both packages on `sys.path`).
 
@@ -56,8 +56,8 @@ and `extract_docking_stats.py` rely on being run from the repo root too
   define a `hard_rep` score function and a `ParsedProtocol` mover.
 - Launchers in [scripts/](scripts/): `run_all.slurm` (PDBbind, array 0–11459),
   `run_astex.slurm`, `run_posebuster.slurm`, and `run_local.sh`
-  (GNU parallel, local smoke test). The SLURM scripts `cd` into the repo and
-  invoke `python -m docking.main`.
+  (GNU parallel, local smoke test). The SLURM scripts `cd` into the repo and run
+  the cluster venv's Python directly as `$VENV_PYTHON -m docking.main` (no `uv`).
 
 ## Phase 2 — Analysis
 
@@ -125,7 +125,7 @@ in **`reference/`**.
 - PyRosetta init flags used throughout:
   `-in:auto_setup_metals -ex1 -ex2 -restore_pre_talaris_2013_behavior true`
 - Local docking smoke test: `bash scripts/run_local.sh`, or
-  `python -m docking.runner` (its `__main__` docks `5k00` into `data/h5_test/`).
+  `uv run python -m docking.runner` (its `__main__` docks `5k00` into `data/h5_test/`).
 
 ## Conventions & gotchas
 
