@@ -1,5 +1,11 @@
-# RosettaLigand: Preliminary Paper Outline
+# RosettaLigand: Preliminary Paper Outline (Paper 1 — characterisation)
 
+> **Two-paper split (decided 2026-09-22).** This is **Paper 1**: the characterisation paper
+> (target: JCIM / JCTC). Everything about ensemble thermodynamics, entropy estimation, learned
+> Boltzmann-consistent reweighting and the ML-facing dataset release has moved to
+> **Paper 2** — see [PAPER2_CONCEPT.md](PAPER2_CONCEPT.md). Paper 1 keeps only a baseline
+> affinity correlation and points to Paper 2 in the outlook.
+>
 > **Working document — follows "Paper Structure Idea 3.0"** from the Confluence page
 > *RosettaLigand vs Posebuster*
 > (https://meilerlab.atlassian.net/wiki/spaces/~898177309/pages/3534225411).
@@ -28,6 +34,9 @@ before they go into the paper.** Markers used throughout:
 - `[TODO]` — content that does not exist yet and needs to be written/run.
 - `[CITE]` — citation needed; where it says "cite own work", prefer Meiler-lab / Eisenhuth
   publications per the idea-3 brief.
+- `[COMPUTE]` — needs **new docking/relax runs**, not just re-analysis. All such items are
+  collected in **Appendix C**; Paper 2's compute list is in
+  [PAPER2_CONCEPT.md](PAPER2_CONCEPT.md) §4, and the two overlap (C3/C5 there = A/B here).
 
 Repos to check for the latest code and results:
 - Analysis / ML: `github.com/lucafrb/rosettaligand-vs-posebuster`
@@ -53,12 +62,29 @@ but ranks them poorly** — it routinely *overrates incorrect conformations*. We
 ranking failure is hard to fix by reweighting or by learning a new scoring head (gains are real
 but small), and we argue from the energy landscape (dimensionality reduction) that the cause is a
 **dense field of near-degenerate local minima** that the current score cannot separate. Finally we
-look at affinity (Kd) correlation and lay out an ensemble / entropy–enthalpy framework (Felipe's
-analysis) as the route forward. A reusable by-product is **a dataset of Rosetta energy scores plus
-energetically minimised complexes spanning the full RMSD range.**
+report the baseline affinity (Kd) correlation of the default score and point to ensemble
+thermodynamics (Paper 2) as the route forward. The raw docking output (Rosetta energy scores plus
+energetically minimised complexes spanning the full RMSD range) is deposited with this paper; the
+curated ML benchmark built on it is Paper 2's contribution.
 
 The arc, in one line: *characterise → expose the sampling/scoring gap → try to fix scoring and
-explain why it resists → connect to affinity → outlook on ensemble thermodynamics.*
+explain why it resists → baseline affinity correlation → outlook (Paper 2).*
+
+### Story update 2026-10-09 — three tracks
+
+The paper is told as **three tracks**, each with a lead contributor. The sections below have not
+yet been re-ordered to match; the detailed spec of the new analyses is in **Addendum D**.
+
+| Track | Question | Lead | Status |
+|---|---|---|---|
+| **T1 — Benchmark** | How well does RosettaLigand work on PDBbind, PoseBusters and Astex? *Side aim:* **what is the mode by which RosettaLigand samples near-crystal structures** — when does it find the crystal basin at all? | Paul / Luca; side aim **Josephine** | data exists; §4.1–§4.4 |
+| **T2 — Fix the ranking** | Can the failure mode (picking the right pose) be repaired? Reweighting + ML heads → **mild improvements only**. Then: *why?* UMAP/t-SNE **plus the new energy-degeneracy analysis** (Addendum D.1) and the **per-complex oracle probe** (Addendum D.2) | **Luca**; analysis Paul | partly done; new analyses `[TODO]` |
+| **T3 — Affinity** | Can score ↔ binding free energy be improved? Simple reweighting of the best pose first (**prelim data: small gain**), then exploit T1/T2: RosettaLigand is a sampler of physically plausible poses biased toward low energy, so fit a **density over the sampled poses, separate basins from flat regions, and map back to an equilibrium free energy with Bayesian uncertainty** (Addendum D.3) | Paul / Felipe | prelim; `[TODO]` |
+
+The logic that links them: T1 establishes that the sampler works, T2 establishes that the energies
+cannot tell right from wrong, and T3 turns both facts around — if the samples are physically
+plausible but the energies are not discriminative, use the **distribution of samples** rather than
+the energy of the single best one.
 
 > **Framing note for the writing pass:** the reweighting "failure" is a *result*, not a
 > disappointment. It is evidence about the shape of the energy landscape. Write it as such.
@@ -109,8 +135,9 @@ and ensemble outlook; (6) the released dataset.
      high-resolution step shape what gets found.
   4. An honest attempt to repair scoring (reweighting + three ML heads) and a landscape-level
      explanation of why it resists.
-  5. Affinity (Kd) correlation and an ensemble / entropy–enthalpy outlook (Felipe).
-  6. A released dataset: scores + minimised complexes across all RMSD ranges.
+  5. Baseline affinity (Kd) correlation of the default score (min vs. mean-of-N vs. simple
+     reweighting); the ensemble / entropy–enthalpy treatment is deferred to Paper 2.
+  6. Deposited raw docking output: scores + minimised complexes across all RMSD ranges.
 
 ---
 
@@ -162,8 +189,19 @@ and ensemble outlook; (6) the released dataset.
     *(Confluence "PreProcessing"; Rocco's reprotonation.)* `[VERIFY]`
 - **3.3 Docking protocols.** Six protocols = {Standard, Perturb} × {PDB-Structure, Relax,
   Relax-Ligaway}. Perturb displaces the ligand by up to 5 Å for a harder, more realistic test;
-  Relax pre-optimises protein+ligand (mean prep ≈ 4.7 h `[VERIFY]`); Ligaway starts the ligand
-  away from the pocket then re-seats it. *(Luca §4.1; Fig. "docking protocols".)*
+  Relax pre-optimises protein+ligand (mean prep ≈ 4.7 h `[VERIFY]`). *(Luca §4.1; Fig. "docking
+  protocols".)* Describe the receptor preparation exactly as `docking/runner.py` does it:
+  - **Relax:** 10 FastRelax seeds of the complex with the ligand in place; backbone coordinate
+    constraints kept on throughout (`AtomCoordinateCstMover`, no ramp-down).
+  - **Relax-Ligaway:** ligand translated 500 Å along the ligand jump, then 10 FastRelax seeds of the
+    whole system (same constraints), then the ligand is translated back into the pocket.
+  - Docking for each receptor state starts from the **lowest-total-score** seed of that state.
+  - **Wording:** Relax-Ligaway is a *holo-derived receptor relaxed without the ligand*, **not an apo
+    structure**. The pocket keeps its holo shape (backbone constrained). Do not call it "apo" in
+    the text.
+  - **Wording:** in all three receptor states the Standard protocol starts from the crystal ligand
+    position, and Perturb is still pocket-centred. Neither is blind docking; say so explicitly
+    when comparing against DL methods.
 - **3.4 Sample counts.** `[FROM REPO]` — thesis used ~150 poses/PDB; the new pipeline increased
   samples to ~200–300 (Confluence ToDo "Increase number of samples to 200-300"). State the final
   number actually used.
@@ -200,17 +238,18 @@ and ensemble outlook; (6) the released dataset.
   vectors to visualise why scoring struggles. Per-PDB embedding (energies are not comparable
   across PDBs) **or** normalise each pose by the sum of its terms to get relative contributions.
   *(Confluence Notes/ToDos.)* `[TODO]` finalise the approach actually run.
-- **3.9 Affinity and ensemble scoring.**
+  - **The embedding is the illustration; the statistic is the evidence.** Reviewers discount UMAP
+    pictures. The quantitative claims come from the **energy-degeneracy analysis** and the
+    **per-complex oracle probe** — see **Addendum D.1 / D.2**.
+- **3.9 Baseline affinity correlation.**
   - Correlation of score vs. experimental Kd/affinity: minimum Interface Delta vs. mean of N
     lowest vs. reweighted score. *(Felipe: r ≈ 0.392 min, 0.376 mean-of-10, 0.418 reweight —
     `[FROM REPO]` refresh.)*
-  - **Ensemble / cluster scoring** as a canonical-ensemble approximation: cluster poses;
-    population-based weights (compare `n`, `ln(1+n)`, and a spread-penalised variant); per-cluster
-    enthalpic centre (mean/best score) and entropic width (intra-cluster RMSD spread). Note that
-    several Rosetta terms carry **local** entropic signal (`fa_sol` = desolvation enthalpy **and**
-    entropic water release), so naive averaging double-handles entropy — motivates the cluster
-    treatment. *(Felipe notes; cluster-weighting analysis; aggregation × term-selection design.)*
-    `[TODO]` settle the final ensemble estimator.
+  - Restrict the headline correlation to Kd/Ki; report IC50 separately (not a thermodynamic
+    quantity).
+  - **Moved to Paper 2:** ensemble / cluster scoring, population and width weights, entropy
+    estimation, the bound-vs-separated thermodynamic cycle. Keep only one sentence here pointing
+    there, so Paper 1 does not pre-empt Paper 2's results.
 
 ---
 
@@ -229,11 +268,21 @@ and ensemble outlook; (6) the released dataset.
   - Astex: all-150-pose **82.4% ≤ 2 Å** (Perturb-Relax). PoseBusters: **80.7% ≤ 2 Å**.
     *(Luca §4.2.1, §4.3.)* `[VERIFY]` against new dataset (Astex final 84, PoseBuster final 388).
   - Takeaway: as a **sampler**, RosettaLigand is strong and beats reported DL methods on raw RMSD.
+  - **Caveat that must be stated, and ideally answered with new runs.** All six protocols are
+    seeded at (Standard) or within 5 Å of (Perturb) the crystal ligand position, i.e. this is
+    re-docking with a known pocket, whereas DiffDock/EquiBind numbers are usually blind. Either
+    restrict the comparison to pocket-conditioned DL baselines, or run **Appendix C / A
+    (pocket-box docking from random starts)** `[COMPUTE]` and report that as the comparable
+    number. Reviewers will ask.
 - **4.2 But scoring/ranking lags — the central gap.**
   - Top-1 vs Top-5 vs all-150: Top-1 is substantially worse, exposing the sampling–scoring
     discrepancy. *(Luca §4.1.1, §4.2.1, Fig. 4.5; §4.3.)* `[FROM REPO]` current Top-k table.
   - Frame explicitly: *the correct pose is in the bag; the score won't reliably pull it out.*
-- **4.3 Starting position governs what is found (Josephine).**
+- **4.3 Starting position governs what is found (Josephine) — T1 side aim: the mode by which
+  RosettaLigand reaches the crystal basin.**
+  - Frame the section as *when and how does the sampler find near-crystal structures at all?*,
+    not as a separate study. The answer feeds T2 (what the score then does with those poses) and
+    T3 (how trustworthy the sampled distribution is).
   - Success rate collapses as starting RMSD grows (4j1p: 1.92 Å → 7.33%; 3.14 Å → 4.67%;
     ≥ 5.7 Å → ~0%). *(Eboh slide 10.)*
   - **Initial perturbation** redistributes rather than rescues success — helps a little at
@@ -270,22 +319,27 @@ and ensemble outlook; (6) the released dataset.
     approach that edges ahead, and only by ~1–2% on Top-5. Gains are real but small. *(Luca §4.5,
     §5.2.)* `[FROM REPO]` add Astex/PoseBuster columns and the latest tuned numbers.
 - **4.6 Why scoring resists improvement: the energy landscape.**
-  - tSNE/UMAP of energy-term vectors → `[TODO]` describe what the embedding shows. Working
+  - **Main evidence (new, Addendum D):** the energy-degeneracy density plot and scatter (D.1) —
+    many poses that are arbitrarily wrong carry an energy profile indistinguishable from a correct
+    one — plus the per-complex oracle probe (D.2), which bounds what *any* reweighting could
+    achieve. Together these turn §4.5's small gains from "our models were not good enough" into
+    "the term set does not contain the information".
+  - tSNE/UMAP of energy-term vectors → `[TODO]` describe what the embedding shows; illustration
+    for D.1, not evidence on its own. Working
     hypothesis (idea 3.0): **too many near-degenerate local minima** with near-identical energy
     signatures, so no reweighting of these terms can cleanly separate native from decoy.
   - Optional heat-map deliverable (Confluence ToDo): aggregation (y) × term-selection (x), doubled
     on x for trained vs. standard weights; two maps (MAE and Pearson r) — to test whether more
     aggregation helps as more entropic terms are dropped. `[TODO]`
-- **4.7 Affinity correlation and ensemble scoring.**
+- **4.7 Affinity (T3).**
   - Score vs. Kd: min vs. mean-of-N vs. reweighted (Felipe's r-values above). `[FROM REPO]`
-  - Ensemble/cluster estimator results `[TODO]`. Felipe's testable predictions to address:
-    (a) ML-QM-rescored *ensemble* > ML-QM-rescored *minimum* ⇒ ensembles carry entropic info;
-    (b) bigger gains for **open active sites** than deep pockets ⇒ conformational-entropy
-    hypothesis; (c) decompose into ΔH (better QM) and TΔS (ensemble stats), fit against ITC.
-  - Honest negative result to include: using the raw score distribution to estimate binding free
-    energy **worsens** affinity prediction — docking samples are biased toward the score's own
-    energy landscape. Frame as motivation for the geometry-based ensemble weighting, which adds
-    information the score cannot see. *(Prior cluster-scoring analysis.)*
+  - Reweighting fitted on the best pose against affinity: small gain, prelim data `[FROM REPO]`.
+  - Then the sampled-density free energy with Bayesian error bars (**Addendum D.3**), if the
+    Paper 1 / Paper 2 boundary is settled that way.
+  - Otherwise short and descriptive. Felipe's testable predictions (ensemble >
+    minimum; open vs. deep pockets; ΔH / TΔS decomposition) and the negative result on raw
+    score-distribution free energies all move to **Paper 2**, where they are the motivation for
+    estimating the sampler's density.
 
 ---
 
@@ -313,12 +367,11 @@ and ensemble outlook; (6) the released dataset.
   is its weak point; we quantified this across three benchmarks, showed it is hard to repair by
   reweighting/ML, and explained it via the energy landscape. It remains a sound default for
   protein–ligand docking when sampling breadth matters.
-- **6.2 Outlook.** Ensemble thermodynamics: treat clusters as macrostates, approximate Boltzmann
-  weights from populations, read local entropy from intra-cluster spread; sample
-  entropy–enthalpy explicitly and validate ΔH / TΔS against ITC. *(Felipe.)*
-- **6.3 Released dataset.** Rosetta energy scores + energetically minimised complexes across all
-  RMSD ranges — reusable for training interaction kernels and diffusion models (likely binned by
-  RMSD). *(Confluence "Follow up Projects".)*
+- **6.2 Outlook.** One paragraph pointing to Paper 2: treat the docking engine as a
+  non-equilibrium sampler, estimate its sampling density, and combine enthalpy from the classical
+  score with entropy from the ensemble. *(Felipe; Paper 2.)*
+- **6.3 Deposited data.** Rosetta energy scores + energetically minimised complexes across all
+  RMSD ranges (raw HDF5 output). The curated ML benchmark (splits, tasks, loaders) is Paper 2.
 
 ---
 
@@ -350,12 +403,159 @@ header differences (3), unreadable SDF (2), unusual energy term (5), unfinished 
 ## Appendix B — Open research questions to answer from the data (Confluence)
 
 1. Dock into crystal or relax? Total Score or Interface Delta? `[TODO]`
-2. How good is RL at recovering a pocket from an **unbound** complex? `[TODO]`
+2. How good is RL at recovering a pocket from an **unbound** complex? `[TODO]` — **the current
+   data cannot answer this.** Relax-Ligaway is a holo receptor relaxed without the ligand, not an
+   unbound structure. Answering it needs **Appendix C / B (true apo receptors)** `[COMPUTE]`;
+   otherwise reformulate the question as "recovering a pocket that was relaxed without its
+   ligand" and say so plainly.
 3. How closely does RL stick to a near-native input (does it stay near crystal)? — informs whether
    to optimise **sampling** or **scoring**. `[TODO]`
-4. How often does RL find a ≤ 2 Å pose, and how many samples does it need? `[TODO]`
+4. How often does RL find a ≤ 2 Å pose, and how many samples does it need? `[TODO]` — answerable
+   from existing data by sub-sampling the 300 poses per protocol (success-vs-N curve); no new
+   compute needed.
 5. How well does the score-fn **rank** complexes? `[TODO → §4.2/4.5]`
 6. How well does the score-fn **correlate with affinity**? `[TODO → §4.7]`
+
+---
+
+## Addendum D — New analyses from the 2026-10-09 story update
+
+Written as a spec to be folded into §3/§4 later. Nothing here has been implemented or tested.
+All three run on **existing data**; none needs new docking.
+
+### D.1 Energy-degeneracy analysis — "wrong poses with right energies" (T2)
+
+**Claim to establish:** a large fraction of clearly incorrect poses have energy profiles nearly
+identical to a correct one, so *no* reweighting of these terms can separate them. This is the
+quantitative version of the UMAP picture.
+
+**Procedure, per complex:**
+
+1. Split the poses into **correct** (RMSD ≤ 2 Å) and **incorrect** (> 2 Å). Complexes with no
+   correct pose are excluded from this analysis (report how many).
+2. Take the per-pose **energy vector**. Default: the `raw_delta_*` interface terms restricted to
+   the non-zero set (`fa_atr`, `fa_elec`, `fa_pair`, `fa_rep`, `fa_sol`, `hbond_bb_sc`,
+   `hbond_sc`). Report the `raw_*` total-energy version as a robustness check.
+3. **Standardise within the complex** (z-score each term over that complex's poses). Energies are
+   not comparable across complexes, and the terms differ in scale by orders of magnitude; without
+   this, the distance is dominated by `fa_atr`.
+4. For every incorrect pose *i*, compute the distance to its **nearest correct pose**:
+   $d_i = \min_{j \in \text{correct}} \lVert \mathbf{e}_i - \mathbf{e}_j \rVert$.
+   Euclidean on standardised terms as the default; **Mahalanobis** using the within-complex
+   covariance as the principled variant (the terms are strongly correlated) `[TODO]` decide which
+   goes in the main text.
+5. Keep per incorrect pose: $d_i$, its RMSD, its Δ(total score) and Δ(interface delta) to that
+   nearest correct pose, and the complex id.
+
+**Reference scales that must be plotted alongside, or the number means nothing:**
+
+- **correct–correct** nearest-neighbour distances (the within-basin spread). If incorrect poses sit
+  at the same distance from a correct pose as correct poses do from each other, the energies are
+  genuinely non-discriminative. *This comparison is the result.*
+- **incorrect–incorrect** nearest-neighbour distances (the decoy cloud's own density).
+- a **cross-complex permutation** control: distances to correct poses of a *different* complex,
+  which sets the "unrelated energy profile" scale.
+
+**Figures.**
+
+- **Density plot** of $d_i$ for the three populations above, pooled over complexes (the plot the
+  story asks for).
+- **Scatter:** $d_i$ (x) vs. RMSD (y), coloured by Δ(interface delta), hexbin because of the point
+  count. The expected signal is a dense band at low $d_i$ spanning the **whole** RMSD range — the
+  "arbitrarily wrong but energetically identical" population.
+- Optional per-complex summary: fraction of incorrect poses whose $d_i$ falls below the median
+  correct–correct distance. One number per complex, histogram over complexes, and a table by
+  protocol.
+
+**Headline statistics to report:**
+
+- % of incorrect poses that are **energy-degenerate** with a correct one, defined as
+  $d_i$ below the complex's median correct–correct distance **and** RMSD > 5 Å (not a near-miss);
+- % of complexes where the **best-scoring** pose is such a degenerate decoy — this connects the
+  analysis directly to the Top-1 failures in §4.2;
+- the same split by protocol and by receptor state.
+
+**Pitfalls to avoid:**
+
+- The distance and the score difference are correlated by construction. State the claim as
+  *similar energy vector* **and** *similar or better total score* **and** *large RMSD*; the
+  Δ-score column makes that explicit.
+- Standardisation must use that complex's own poses only; any global scaling reintroduces
+  cross-complex incomparability.
+- Report whether the degenerate decoys concentrate in particular protocols (they may be an
+  artefact of perturbed starts) or in particular target classes.
+
+### D.2 Per-complex oracle probe — an upper bound on what reweighting can achieve (T2)
+
+A short, strong companion to D.1. For each complex **separately**, fit a linear classifier on the
+energy terms to separate correct from incorrect poses, with cross-validation **within** that
+complex, and report AUC.
+
+**Why it matters:** this classifier is allowed to choose the best possible weights *for that one
+complex* — strictly more freedom than any global reweighting, including Rosetta's own weights and
+Luca's learned ones. Its AUC is therefore an **upper bound** on the per-complex performance any
+reweighting scheme could reach. If the median oracle AUC is low, the §4.5 result ("reweighting
+only helps a little") stops being a statement about our models and becomes a statement about the
+term set. That is the sentence the discussion needs.
+
+Report: distribution of oracle AUC over complexes; its correlation with the D.1 degeneracy
+fraction; and the gap between oracle AUC and the AUC actually achieved by the global reweighting
+and the LambdaRank head.
+
+### D.3 Affinity track — from best-pose reweighting to a sampled-density free energy (T3)
+
+**Step 1 (have prelim data).** Fit a reweighting of the terms on the lowest-energy pose per
+complex against the reported affinity. Expect a modest gain over the default score
+`[FROM REPO]` refresh the number. Report it as the baseline, with the leakage-aware split.
+
+**Step 2 (the idea).** T1 and T2 together say: the sampler produces physically plausible poses and
+concentrates them where its own energy is low, but the energies of individual poses do not
+identify the right one. So use the **distribution** of samples rather than the energy of the best
+one:
+
+1. Represent each pose in a low-dimensional pose space (ligand rigid-body coordinates in the
+   receptor frame + torsions, or a reduced coordinate from the clustering) `[TODO]` choose.
+2. **Fit a smooth density / energy surface** to the sampled poses (kernel density, a mixture
+   model, or a GP on the energies). The point of the fit is to distinguish **basins** (narrow,
+   deep, heavily sampled) from **flat regions** (broad, shallow, sparsely sampled but entropically
+   large) — the information a single minimum throws away.
+3. Integrate $e^{-\beta E}$ over the fitted surface to get an effective $Z$, and map back to a
+   free energy. Correct for the sampler's own bias toward low energy, otherwise the enthalpy is
+   counted twice (this is the failure mode of the earlier naive attempt; see
+   [PAPER2_CONCEPT.md](PAPER2_CONCEPT.md) §2.2).
+4. **Bayesian uncertainty:** place a posterior on the fitted surface (GP posterior, or a Bayesian
+   bootstrap over poses) and propagate it to a posterior over ΔG per complex. Report predicted
+   affinity *with error bars*, and check that the error bars are calibrated — complexes with few
+   distinct basins should come out visibly less certain. This is a genuine selling point: almost
+   no docking score reports a calibrated uncertainty.
+
+**Paper 1 / Paper 2 boundary — open decision.** This step 2 is the descriptive, non-learned
+sibling of Paper 2's estimator ladder (S3–S5). Suggested line, to be agreed with co-authors:
+
+- **Paper 1** keeps step 1, plus *one* fitted-density estimator with Bayesian error bars,
+  evaluated descriptively on the existing data. It ends on "the ensemble carries information the
+  single best pose does not".
+- **Paper 2** keeps the trained version: learned proposal density, the bound/separated
+  thermodynamic cycle, the Boltzmann-consistent objective, the estimator comparison and the
+  calibration tests.
+- If step 2 turns out to work very well, revisit the split — it may belong entirely to Paper 2.
+
+---
+
+## Appendix C — Additional compute this paper needs `[COMPUTE]`
+
+Everything else in this outline runs on the **existing** 11,444 × 1,800 pose dataset. These are
+the only items that require new cluster runs. A/B are shared with Paper 2 (= C3/C5 in
+[PAPER2_CONCEPT.md](PAPER2_CONCEPT.md) §4), so run them once and use them in both.
+
+| ID | Run | Needed for | Priority | Notes |
+|---|---|---|---|---|
+| **A** | **Pocket-box docking from random starts** — random ligand position/orientation inside a pocket box, random conformer, no crystal-pose seeding; ~300 poses per complex | §4.1/§4.2 fair comparison against blind DL methods; the only version of "docking power" that is not re-docking | **High** | Start on Astex + PoseBusters (472 complexes) and a PDBbind subset; extend if it works. Also = Paper 2 / C3 |
+| **B** | **True apo receptors** for targets with an apo PDB entry | Appendix B question 2 (pocket recovery from an unbound structure) | Medium | Requires an apo↔holo matching step `[TODO]`; without it, that question must be reworded |
+| **C** | **Re-run the PoseBusters validity suite** on the current poses | §4.4 corrected PB-valid ranking after the RDKit/kekulé fix | **High** | Analysis-level compute only, no docking |
+| **D** | Optional: **more samples on a subset** (e.g. 1,000 poses for a few hundred complexes) | §4.1 saturation check — does the success-vs-N curve flatten before 300? | Low | The 300-pose sub-sampling curve may already answer it |
+
+Not needed for Paper 1: unconstrained relaxation and thermal basin sampling (Paper 2 / C1, C2).
 
 ---
 
@@ -368,4 +568,13 @@ header differences (3), unreadable SDF (2), unusual energy term (5), unfinished 
 - [ ] Decide and run the final ensemble/affinity estimator; refresh Felipe's r-values (§4.7).
 - [ ] Replace random splits with a leakage-aware split, or justify keeping them.
 - [ ] Settle title, author order, and contribution statement.
+- [ ] Agree the Paper 1 / Paper 2 boundary with co-authors: Josephine's starting-position results
+      are presented in full here; Paper 2 only cites them (and uses the dataset-wide Standard vs.
+      Perturb comparison) as evidence that the sampler is non-ergodic.
+- [ ] Decide where the raw data is deposited (e.g. Zenodo) so Paper 2 can build on the same DOI.
+- [ ] Decide on Appendix C runs A and B (shared with Paper 2) — budget, subset, and who launches
+      them. Run A is the one that most changes how §4.1/§4.2 can be phrased.
+- [ ] Re-order §3–§5 into the three tracks of the 2026-10-09 story update (T1 benchmark +
+      sampling mode, T2 ranking + why it resists, T3 affinity).
+- [ ] Settle whether Addendum D.3 step 2 (sampled-density free energy) is Paper 1 or Paper 2.
 - [ ] Decide how much of the lab's own RosettaLigand work to cite up front (idea-3 brief: a lot).
