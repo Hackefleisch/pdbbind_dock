@@ -52,7 +52,12 @@ and `extract_docking_stats.py` rely on being run from the repo root too
   poses, runs N docking trajectories per protocol, writes results incrementally
   to `<pdb>.h5`. Re-running **resumes** an existing file.
 - [docking/load_ligand.py](docking/load_ligand.py) — conformer generation,
-  mutable-residue creation, pose assembly.
+  mutable-residue creation, pose assembly. The input (crystal) conformer is kept and
+  loaded into the Rosetta rotamer library together with the generated ones.
+- [docking/ligand_rmsd.py](docking/ligand_rmsd.py) — symmetry-corrected, **in-place**
+  heavy-atom ligand RMSD (graph automorphisms; validated against Rosetta's
+  `automorphic_rmsd`). Used by the auto-correction in `docking/result.py` (and thus by
+  the extraction); the runner itself is untouched.
 - [docking/xml_protocols/](docking/xml_protocols/) — each protocol XML must
   define a `hard_rep` score function and a `ParsedProtocol` mover.
 - Launchers in [scripts/](scripts/): `run_all.slurm` (PDBbind, array 0–11459),
@@ -80,8 +85,19 @@ and `extract_docking_stats.py` rely on being run from the repo root too
   - `reweighting.py` — PyTorch linear reweighting of `raw_delta_*` terms.
   - `figures.py` — matplotlib figure generation (output → `figures/`).
   - `scfx_weights.json` — default Rosetta score-function weights.
+  - `extract.py` — **full-set extraction**: every H5 file of a set → parquet tables
+    (`docked`, `seeds`, `complexes`, `manifest.json`) under `data/docking_stats/<set>_full/`,
+    read through `Result(autocorrect=True)`, so `total_score`, `rmsd_to_crystal` and
+    `rmsd_to_input` are corrected and the stored values sit next to them as `*_legacy`.
+    All complexes are included; filter on `complexes.complete`.
+    Run `uv run python -m docking_analysis.extract --set pdbbind` (`--no-autocorrect` for raw).
+  - `benchmark.py` — six success-rate tables, one per receptor state × protocol, with the
+    benchmark sets as rows, produced once per ranking score (interface delta and corrected
+    total score) and preceded by a column legend. Output: `data/figures/benchmark/`.
+    Run `uv run python -m docking_analysis.benchmark`.
 - [docking/result.py](docking/result.py) — `Result` / `PDBRinterface`: the H5
-  reader used by the notebooks and by `clustering.py`.
+  reader used by the notebooks, by `clustering.py` and by the extraction. **Auto-corrects
+  `total_score`, `rmsd_to_crystal`, `rmsd_to_input` by default** (see "Legacy semantics").
 - [notebooks/](notebooks/) — `extract_docking_dataframe.ipynb` (current; builds
   the `docking_stats/*.zip` bundles from the H5 files), plus older exploratory
   notebooks (`h5_analysis`, `failed_log_analysis`, `pdbbind_filter`). They import
@@ -101,6 +117,22 @@ and `extract_docking_stats.py` rely on being run from the repo root too
 `rmsd_to_input`, `prepare_time`, then `raw_<term>` and `raw_delta_<term>` per
 active Rosetta energy term. Inspect any file with `uv run scripts/h5_size.py <file.h5>`.
 
+**Legacy semantics and auto-correction** (decided 2026-10-15: the stored data is final, no
+re-docking, the docking code stays as it is):
+
+- Stored `total_score` **includes** the coordinate-constraint energy
+  (0.5 × `raw_coordinate_constraint`) for seed rows *and* docked poses: the runner scores the
+  relaxed seeds before removing the FastRelax restraints, and the FinalMinimizer leaves its Cα
+  restraints in the pose. `idelta_score` is unaffected.
+- Stored `rmsd_to_crystal` / `rmsd_to_input` are Rosetta `RMSDMetric` values: in place, all
+  heavy atoms, matched by atom name, **no symmetry correction**.
+- `Result(..., autocorrect=True)` (the default) rewrites exactly these three columns on access
+  (constraint-free total; symmetry-corrected in-place RMSDs from the stored structures) and
+  keeps the stored values as `total_score_legacy`, `rmsd_to_crystal_legacy`,
+  `rmsd_to_input_legacy`. Everything else stays as stored. `autocorrect=False` gives the raw
+  tables. The docking reference of a receptor state is always the lowest *stored* total
+  (`Result.reference_index`), as in the docking run.
+
 ## Data layout
 
 Everything below lives under **`data/`** (git-ignored). On the HPC cluster the
@@ -113,7 +145,9 @@ SLURM scripts expect the same names under `$WORKSPACE/data/`.
 | `posebusters_paper_data/` | 211 M | Astex + PoseBusters benchmark inputs (with id-list files). |
 | `pdbbind_h5/` | **374 G** | Docking output, 11 460 `.h5` files. |
 | `posebuster_h5/` `astex_h5/` | 14 G / 3.2 G | Docking output for the other two sets. |
-| `docking_stats/` | 3.3 G | Extracted dataframe zips + `cluster_cache_filtered_v2/` consumed by analysis. |
+| `docking_stats/` | 3.3 G | Legacy extracted dataframe zips + `cluster_cache_filtered_v2/` (partial: complete complexes / exact-Kd subset, uncorrected RMSD, totals with constraint energy). |
+| `docking_stats/<set>_full/` | ~6 G | **Full-set parquet tables** from `docking_analysis.extract` — the data the analyses must use. |
+| `h5_test_v2/` | — | Scratch output of a 2026-10-15 smoke test with a since-reverted runner (`184l`); safe to delete. |
 | `figures/` | — | Generated figures (regenerated; safe to clear). |
 | `h5_test/` | — | Scratch output of the local smoke test. |
 | `pdbbind_rosetta.csv` | 24 M | Legacy summary table; kept on disk but untracked. |
@@ -124,7 +158,14 @@ in **`reference/`**.
 ## Environment
 
 - Python ≥ 3.11, managed with **uv** ([pyproject.toml](pyproject.toml), `uv.lock`).
-  PyRosetta is pinned to a JHU wheel URL; install requires accepting its license.
+  PyRosetta 2025.47 (Rosetta commit `8bb54e8a6d`, GitHub tag `v2025.47-dev62202`) is
+  installed from a **vendored wheel** in `wheels/` (git-ignored): the JHU wheel archive keeps
+  only the latest ~8 releases and its TLS chain is incomplete, so the wheel (sha256 in
+  `pyproject.toml`; a copy is in `~/Downloads`) must be placed there once before `uv sync`.
+  The same build is served permanently as a conda package
+  (`conda install -c https://conda.graylab.jhu.edu pyrosetta=2025.47`), and the Rosetta
+  source at that tag can be built. Obtaining PyRosetta implies accepting its license.
+- Analysis extras: scikit-learn, umap-learn, seaborn, statsmodels, pyarrow.
 - Run anything with `uv run <script>` (or `.venv/bin/python`).
 - PyRosetta init flags used throughout:
   `-in:auto_setup_metals -ex1 -ex2 -restore_pre_talaris_2013_behavior true`
@@ -135,6 +176,14 @@ in **`reference/`**.
 
 - **`docking_analysis/constants.py` is the single source of truth for paths.**
   When inputs move, edit there, not in scattered scripts.
+- **The docking code and the stored H5 files keep their legacy semantics; corrections happen
+  on access.** `Result(autocorrect=True)` (default) and therefore the extraction tables report
+  constraint-free totals and symmetry-corrected in-place RMSDs, with the stored values kept as
+  `*_legacy`. Do not "fix" `runner.py` or the XMLs for this: the data will not be re-docked.
+- **Analyses run on the full extraction** (`data/docking_stats/<set>_full/`), never on the
+  older partial zips, which cover only complete complexes / the exact-Kd subset and carry
+  uncorrected RMSDs and constraint-laden totals. `extract_docking_stats.py` and
+  `docking_analysis/data.py` still read the legacy zips and are due for porting.
 - Data/cache artifacts are versioned by filename suffix (`_v2`, `rmsd_2.0`). The
   current analysis targets `pdbbind_relax_perturb_filtered_kd_v2.zip` and
   `cluster_cache_filtered_v2/`.

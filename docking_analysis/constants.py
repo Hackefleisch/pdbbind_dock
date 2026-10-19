@@ -19,6 +19,12 @@ INDEX_PATH          = DATA_DIR / "pdbbind_2020plus" / "INDEX_general_PL.2020R1.l
 OUTPUT_DIR          = DATA_DIR / "figures"
 SCFX_WEIGHTS_PATH   = Path(__file__).resolve().parent / "scfx_weights.json"
 H5_DIR              = DATA_DIR / "pdbbind_h5"
+H5_DIRS             = {                      # per benchmark set (docking_analysis.extract)
+    "pdbbind":    DATA_DIR / "pdbbind_h5",
+    "posebuster": DATA_DIR / "posebuster_h5",
+    "astex":      DATA_DIR / "astex_h5",
+}
+EXTRACT_DIR         = DATA_DIR / "docking_stats"   # full extractions live in <EXTRACT_DIR>/<set>_full/
 CLUSTER_CACHE_DIR   = DATA_DIR / "docking_stats" / "cluster_cache_filtered_v2"
 
 # ---------------------------------------------------------------------------

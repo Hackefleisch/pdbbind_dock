@@ -9,12 +9,26 @@ dependencies = [
     "ipykernel>=7.1.0",
     "matplotlib>=3.10.7",
     "plinder>=0.2.25",
+    "pyarrow>=22.0.0",
     "pyrosetta",
     "rdkit>=2025.9.1",
+    "scikit-learn>=1.9.1",
     "scipy>=1.16.3",
+    "seaborn>=0.13.2",
+    "statsmodels>=0.15.0",
     "torch>=2.9.1",
     "tqdm>=4.67.1",
+    "umap-learn>=0.5.12",
 ]
 
 [tool.uv.sources]
-pyrosetta = { url = "https://graylab.jhu.edu/download/PyRosetta4/archive/release/PyRosetta4.Release.python311.ubuntu.wheel/pyrosetta-2025.47+release.8bb54e8a6d-cp311-cp311-linux_x86_64.whl" }
+# PyRosetta 2025.47+release.8bb54e8a6d = Rosetta commit 8bb54e8a6d (GitHub tag v2025.47-dev62202).
+# The graylab.jhu.edu wheel archive keeps only the latest ~8 weekly releases, so the pip wheel
+# used for all docking runs is vendored under wheels/ (git-ignored; original URL:
+#   https://graylab.jhu.edu/download/PyRosetta4/archive/release/PyRosetta4.Release.python311.ubuntu.wheel/
+#   pyrosetta-2025.47+release.8bb54e8a6d-cp311-cp311-linux_x86_64.whl
+#   sha256 724b440b369a5f3e0c807c107ba669b4cd910344b68ef27e0f1e6108e61c00f6).
+# The identical build is served permanently by the PyRosetta conda channel:
+#   conda install -c https://conda.graylab.jhu.edu pyrosetta=2025.47   (py311 build sha256 a24ad02e7a4bdc20...)
+# Obtaining PyRosetta implies accepting its license.
+pyrosetta = { path = "wheels/pyrosetta-2025.47+release.8bb54e8a6d-cp311-cp311-linux_x86_64.whl" }

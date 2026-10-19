@@ -14,3 +14,6 @@ __pycache__/
 /*.zarr
 log.txt
 error.txt
+
+# vendored PyRosetta wheel (licensed, large) - see pyproject.toml [tool.uv.sources]
+wheels/

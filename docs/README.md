@@ -9,6 +9,9 @@ state the authoritative source file(s) it documents.
 - [dataset_preparation.md](dataset_preparation.md) — how `pdbbind_cleaned` is
   filtered and built from the raw PDBbind v2020 download
   (source: [`scripts/filter_pdbbind.py`](../scripts/filter_pdbbind.py)).
+- [PAPER_OUTLINE.md](PAPER_OUTLINE.md) / [PAPER2_CONCEPT.md](PAPER2_CONCEPT.md) — the
+  paper plans; [PAPER1_STORY_INVENTORY.md](PAPER1_STORY_INVENTORY.md) — what the data
+  supports today and what is still missing, per story.
 
 ## Suggested future pages
 
