@@ -15,8 +15,10 @@ The implementation was validated against Rosetta's ``core::scoring::automorphic_
 (superimpose=False) on docked poses: identical to 1e-3 Å, and ~1000x faster because
 the automorphisms are enumerated once per ligand instead of once per call.
 
-Used by ``docking.runner`` (live Rosetta poses) and by the analysis extraction
-(legacy HDF5 files, from the stored PDB strings).
+Used by ``docking.result.Result`` to recompute the stored RMSDs from the PDB
+strings in the HDF5 files (and therefore by ``docking_analysis.extract``). The
+docking runner itself is unchanged and still stores Rosetta's uncorrected values;
+``heavy_xyz_from_residue`` is provided for live Rosetta poses.
 """
 
 from __future__ import annotations

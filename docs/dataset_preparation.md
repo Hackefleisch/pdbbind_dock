@@ -4,7 +4,8 @@ How the docking input set (`data/pdbbind_cleaned`) is derived from a raw
 PDBbind v2020 download (`data/pdbbind_2020plus`).
 
 - **Reference implementation:** [`scripts/filter_pdbbind.py`](../scripts/filter_pdbbind.py)
-  (extracted from `notebooks/pdbbind_filter.ipynb`).
+  (extracted from the original exploratory notebook, which has been removed from
+  the repository; the script is the authoritative version).
 - **Result:** **19,037** complexes in the PDBbind general set → **11,460** cleaned
   docking inputs.
 
@@ -41,9 +42,9 @@ Parsed straight from the index file (no structure I/O).
 | Resolution | crystal resolution > **2.5 Å** | low-resolution coordinates are unreliable |
 | NMR / no resolution | resolution field is non-numeric | NMR ensembles lack a single defined geometry |
 
-> The notebook additionally surveyed *unrecognised* annotation strings to make
-> sure nothing filter-worthy was missed; that survey is diagnostic only and is
-> not part of `filter_pdbbind.py`.
+> The original notebook additionally surveyed *unrecognised* annotation strings
+> to make sure nothing filter-worthy was missed; that survey was diagnostic only
+> and is not part of `filter_pdbbind.py`.
 
 ### Stage 2 — ligand filters (RDKit, from the SDF)
 

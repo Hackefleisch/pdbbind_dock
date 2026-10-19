@@ -5,11 +5,12 @@ filter_pdbbind.py
 Build the ``pdbbind_cleaned`` docking-input set from a raw PDBbind v2020
 download (``pdbbind_2020plus``).
 
-This is the extracted, documented version of the ``notebooks/pdbbind_filter``
-notebook that originally produced ``data/pdbbind_cleaned``. The filters and
-thresholds are reproduced exactly; the only changes are structural (functions,
-CLI, summary table) plus a control-flow fix so each removed complex is counted
-under a single reason. See ``docs/dataset_preparation.md`` for the rationale
+This is the extracted, documented version of the exploratory notebook that
+originally produced ``data/pdbbind_cleaned`` (the notebook has since been removed
+from the repository; see the git history). The filters and thresholds are
+reproduced exactly; the only changes are structural (functions, CLI, summary
+table) plus a control-flow fix so each removed complex is counted under a single
+reason. See ``docs/dataset_preparation.md`` for the rationale
 behind every filter.
 
 Pipeline
