@@ -53,11 +53,13 @@ docking_analysis/    Phase-2 analysis package
   extract.py         H5 files -> parquet tables (data/docking_stats/<set>_full/)
   benchmark.py       success-rate tables per receptor state x protocol
   data.py, experiment.py, reweighting.py, figures.py, clustering.py
-                     affinity reweighting grid (legacy inputs, see below)
+                     affinity reweighting grid (legacy, to be rewritten; see below)
+  failed_pdb_ids/    ids of the complexes whose docking failed, one file per set
+  splits.csv         PDBbind split annotations (PLINDER, HAC, CleanSplit, LP-PDBBind)
+  scfx_weights.json  score-function weights as dumped by the runner
 extract_docking_stats.py   entry point of the affinity reweighting grid
-scripts/             run_*.slurm, run_local.sh, filter_pdbbind.py, h5_size.py
+scripts/             run_*.slurm, filter_pdbbind.py, h5_size.py
 docs/                methods documentation and the paper planning documents
-reference/           tracked reference lists (CASF-2016 splits, failed ids)
 data/                all inputs, docking outputs, caches, figures (git-ignored)
 ```
 
@@ -97,8 +99,9 @@ PoseBusters and Astex inputs are the files distributed with the PoseBusters pape
 - **Cluster:** submit the SLURM array jobs in `scripts/`
   (`run_all.slurm`, `run_astex.slurm`, `run_posebuster.slurm`). They expect the
   data tree mirrored under `$WORKSPACE/data/`.
-- **Local smoke test:** `uv run python -m docking.runner` (docks `5k00` once into
-  `data/h5_test/`), or `bash scripts/run_local.sh` (GNU parallel over the index).
+- **Local smoke test:** `uv run python -m docking.runner` docks `5k00` once into
+  `data/h5_test/`. For any other complex call `docking.main` with the arguments used
+  in the SLURM scripts.
 
 Per complex: 1 crystal pose, 10 FastRelax seeds with the ligand in place (`relax`),
 10 FastRelax seeds with the ligand moved 500 Å away and placed back afterwards
@@ -106,7 +109,8 @@ Per complex: 1 crystal pose, 10 FastRelax seeds with the ligand in place (`relax
 (`docking_std.xml` starts at the input ligand placement, `docking_perturb.xml` adds
 an initial random perturbation of up to 5 Å), i.e. 1,800 docked poses. Score function:
 `ligand` weights with the RosettaLigand reweights, `-restore_pre_talaris_2013_behavior`.
-Failed complexes are listed in [`reference/failed_pdb_ids/`](reference/failed_pdb_ids/).
+Complexes whose docking failed are listed in
+[`docking_analysis/failed_pdb_ids/`](docking_analysis/failed_pdb_ids/).
 
 ### HDF5 schema (one file per complex)
 
@@ -147,8 +151,9 @@ learned weights, optional pose clustering) is run with
 uv run extract_docking_stats.py [--n_workers N] [--rmsd_cutoff 2.0]
 ```
 
-It still reads the older zip bundles under `data/docking_stats/` (exact-Kd subset,
-uncorrected RMSDs) and is due to be ported to the full extraction; see
+It was written against older zip bundles (exact-Kd subset, uncorrected RMSDs) that no
+longer exist, so it does not run as is. It is kept as the reference for its term
+selections, aggregations and figures and will be rewritten on the full extraction; see
 [CLAUDE.md](CLAUDE.md).
 
 All paths are defined in one place: **`docking_analysis/constants.py`**

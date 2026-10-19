@@ -1,15 +1,18 @@
 # Paper 1 — Story inventory: what the data can already say, and what is still missing
 
-> Written 2026-10-13 as the first pass over [PAPER_OUTLINE.md](PAPER_OUTLINE.md) (three-track
-> story of 2026-10-09). For every story the outline wants to tell, this file states (a) the claim,
-> (b) what the repo and data support **today**, (c) the caveats that must travel with the claim,
-> and (d) the analysis, code, external material or compute still needed. Nothing here is prose for
-> the paper; it is the checklist for the next steps.
+> Written 2026-10-13 as the first pass over the paper outline (three-track story of 2026-10-09)
+> and updated 2026-10-19, when the outline was retired and the parts of it that are still needed
+> were folded in here: the track table (§2), the thesis-era numbers that must not be quoted (§3),
+> the specifications of the new analyses (Appendix A), the additional compute (Appendix B) and the
+> open writing decisions (Appendix C). For every story the paper wants to tell, this file states
+> (a) the claim, (b) what the repo and data support **today**, (c) the caveats that must travel
+> with the claim, and (d) the analysis, code, external material or compute still needed. Nothing
+> here is prose for the paper; it is the checklist for the next steps.
 >
-> Numbers marked **(fresh)** were computed on 2026-10-13 from the extracted bundles in
-> `data/docking_stats/*.zip` with two throw-away scripts (session scratchpad; to be folded into
-> `docking_analysis/` as a `benchmark` module). Everything else carries the outline's markers:
-> `[FROM REPO]`, `[VERIFY]`, `[TODO]`, `[COMPUTE]`.
+> All numbers come from `docking_analysis.benchmark` on the full extraction (§1). Markers:
+> `[FROM REPO]` value to refresh from the repo, `[VERIFY]` claim to re-confirm against data or
+> literature, `[TODO]` not done, `[COMPUTE]` needs new docking/relax runs, `[CITE]` citation
+> needed.
 
 ---
 
@@ -19,19 +22,22 @@
 
 | Set | Inputs | H5 files | Complete (6 × 300 poses) | Notes |
 |---|---|---|---|---|
-| PDBbind v2020 | 19,037 index → 11,460 cleaned (`pdbbind_cleaned/index.txt`) | 11,460 | **11,444** | 11,518 cleaned originally; 58 removed after the first failed run. `reference/failed_pdb_ids/pdbbind.txt` lists 74 = 58 removed + 16 incomplete (incl. one unreadable file, `6qri`). |
+| PDBbind v2020 | 19,037 index → 11,460 cleaned (`pdbbind_cleaned/index.txt`) | 11,460 | **11,444** | 11,518 cleaned originally; 58 removed after the first failed run. `docking_analysis/failed_pdb_ids/pdbbind.txt` lists 74 = 58 removed + 16 incomplete (incl. one unreadable file, `6qri`). |
 | PoseBusters | 428 | 428 | **388** | 40 ids in the failed list (38 of them still have an H5); 390 expected complete vs 388 extracted → 2 unexplained `[VERIFY]` |
-| Astex Diverse | 85 | 85 | **84** | `1TZ8_DES` failed; `reference/failed_pdb_ids/astex.txt` is empty `[TODO]` |
+| Astex Diverse | 85 | 85 | **84** | `1TZ8_DES` failed (`docking_analysis/failed_pdb_ids/astex.txt`) |
 
 Per complex: 1 crystal row + 10 bound-relax seeds + 10 ligand-away-relax seeds (`poses/`), then
 1,800 docked poses = {crystal, relax, apo_relax} × {std, perturb} × 300, 57 result columns.
 Totals: ≈ 20.6 M PDBbind poses, 0.70 M PoseBusters, 0.15 M Astex.
 
 Affinity labels among the 11,460 docked PDBbind complexes (exact `=` values only):
-Kd 3,586 · Ki 3,135 · IC50 4,582. The analysis pipeline (`KD_RE` in `constants.py`) keeps
-**exact Kd only → 3,579 complexes** in `pdbbind_relax_perturb_filtered_kd_v2.zip`
-(relax + apo_relax Perturb poses with non-positive scores; 1.88 M rows). Adding exact Ki gives
-6,721 complexes. CASF-2016 core set: 290 ids tracked, 276 docked, 107 inside the exact-Kd subset.
+Kd 3,586 · Ki 3,135 · IC50 4,582. The legacy affinity grid (`KD_RE` in `constants.py`) kept
+**exact Kd only → 3,579 complexes** (relax + apo_relax Perturb poses with non-positive scores;
+1.88 M rows); its zip inputs and cluster cache were deleted on 2026-10-19 and the grid is to be
+rewritten on the full extraction. Adding exact Ki gives 6,721 complexes. CASF-2016 core set:
+290 ids (`hacsplit == "test"` in `docking_analysis/splits.csv`), 276 docked, 107 inside the
+exact-Kd subset. `splits.csv` also carries the PLINDER, CleanSplit and LP-PDBBind assignments
+for 19,443 PDBbind ids (input for the leakage-aware split decision, §4).
 
 ### 0.2 Protocol facts that must appear in Methods (verified in code)
 
@@ -83,8 +89,14 @@ Kd 3,586 · Ki 3,135 · IC50 4,582. The analysis pipeline (`KD_RE` in `constants
   commit `8bb54e8a6d` (GitHub tag `v2025.47-dev62202`); the conda channel `conda.graylab.jhu.edu`
   keeps every release, so `pyrosetta=2025.47` can be installed from there permanently. `uv run` /
   `uv add` work again. Added: scikit-learn, umap-learn, seaborn, statsmodels, pyarrow.
-- `data/figures/` is empty: the affinity grid (`extract_docking_stats.py`) has not been run since the
-  cleanup; every T3 number is `[FROM REPO]`.
+- `data/figures/benchmark/` holds the success tables of §1. No affinity figure exists: the legacy
+  affinity grid (`extract_docking_stats.py`) lost its inputs on 2026-10-19 and is to be rewritten on
+  the full extraction, so every T3 number is `[FROM REPO]`.
+- `posebusters` 0.6.5 is a declared dependency (S4); scikit-learn and umap-learn are installed.
+- Links: docking pipeline `github.com/Hackefleisch/pdbbind_dock`; Luca's ML repo
+  `github.com/lucafrb/rosettaligand-vs-posebuster` (§6.1); Overleaf draft
+  `overleaf.com/project/68c2ac9790bd64a27261ba21`; the story discussion on Confluence
+  (*RosettaLigand vs Posebuster*, page 3534225411).
 - Luca's ML code: branch `test_new_architecture` of `lucafrb/rosettaligand-vs-posebuster` (see §6.1);
   the thesis PDF is at `~/Dropbox/Arbeit/Student Projects/Luca RosettaLigand/`. Josephine's raw runs
   are at `~/Projects/docking_start_dependency/` (see §6.2 for the folder → complex mapping). Your
@@ -93,74 +105,7 @@ Kd 3,586 · Ki 3,135 · IC50 4,582. The analysis pipeline (`KD_RE` in `constants
 
 ---
 
-## 1. Fresh headline numbers (complex-level, 2 Å cutoff, ranking by interface delta unless noted)
-
-> The tables in this section were computed on 2026-10-13 from the legacy zips (complete complexes
-> only, uncorrected RMSD). They are **superseded** by the full-set tables in §1b (symmetry-corrected
-> RMSD, all complexes), kept here only to show how much the corrections move the numbers.
-
-Columns: `% poses ≤ 2 Å` = pooled pose-level hit rate; `any ≤ 2 Å` = complexes with at least one hit
-among 300; `median hit frac.` = median per-complex fraction of hits; `Top-1/5/10` = a hit among the
-k best interface-delta poses; `Top-1 (total)` = same with total score (constraint energy included).
-
-**PDBbind, 11,444 complexes (fresh)**
-
-| Protocol | % poses ≤ 2 Å | any ≤ 2 Å | median hit frac. | Top-1 | Top-5 | Top-10 | Top-1 (total) |
-|---|---|---|---|---|---|---|---|
-| crystal · std | 64.4 | 99.6 | 69.7 | 85.0 | 93.4 | 95.7 | 72.2 |
-| relax · std | 64.4 | 99.3 | 70.0 | 87.9 | 93.8 | 95.5 | 89.6 |
-| apo_relax · std | 34.0 | 95.5 | 24.7 | 72.3 | 84.0 | 88.0 | 70.4 |
-| crystal · perturb | 5.0 | 94.7 | 3.7 | 64.3 | 79.9 | 84.8 | 28.9 |
-| **relax · perturb** | 5.1 | **94.7** | 3.7 | **70.6** | **83.4** | 87.5 | 69.3 |
-| apo_relax · perturb | 3.8 | 87.3 | 2.0 | 51.4 | 68.3 | 74.2 | 48.3 |
-
-Pooled Perturb (900 poses): any ≤ 2 Å 98.0 %; relax + apo_relax Perturb (600): 96.6 %.
-Analytic success-vs-N for relax · perturb (from per-complex hit fractions):
-N = 1 / 5 / 10 / 25 / 50 / 100 / 150 / 300 → 5 / 21 / 35 / 57 / 72 / 83 / 87 / 92 %.
-Positive interface-delta poses: 10–13 % of Perturb poses, < 4 % of Standard poses.
-
-**Astex Diverse, 84 complexes (fresh)**
-
-| Protocol | % poses ≤ 2 Å | any ≤ 2 Å | median hit frac. | Top-1 | Top-5 | Top-1 (total) |
-|---|---|---|---|---|---|---|
-| crystal · std | 70.0 | 100 | 79.8 | 95.2 | 97.6 | 70.2 |
-| relax · std | 69.6 | 100 | 76.3 | 92.9 | 100 | 95.2 |
-| apo_relax · std | 44.2 | 100 | 35.0 | 85.7 | 95.2 | 84.5 |
-| crystal · perturb | 7.0 | 97.6 | 5.3 | 76.2 | 89.3 | 27.4 |
-| **relax · perturb** | 7.2 | **98.8** | 5.2 | **83.3** | **91.7** | 82.1 |
-| apo_relax · perturb | 5.3 | 92.9 | 3.0 | 64.3 | 79.8 | 63.1 |
-
-**PoseBusters, 388 complexes (fresh)**
-
-| Protocol | % poses ≤ 2 Å | any ≤ 2 Å | median hit frac. | Top-1 | Top-5 | Top-1 (total) |
-|---|---|---|---|---|---|---|
-| crystal · std | 67.5 | 99.7 | 72.2 | 88.1 | 96.6 | 81.2 |
-| relax · std | 65.8 | 100 | 71.3 | 90.2 | 95.9 | 93.6 |
-| apo_relax · std | 38.0 | 97.4 | 34.7 | 78.9 | 89.4 | 77.1 |
-| crystal · perturb | 6.1 | 94.8 | 4.3 | 66.0 | 82.0 | 38.4 |
-| **relax · perturb** | 6.2 | **94.6** | 4.2 | **71.1** | **82.7** | 71.9 |
-| apo_relax · perturb | 4.6 | 87.1 | 2.7 | 55.4 | 70.6 | 53.6 |
-
-**What the tables say, in one breath each**
-
-1. The Standard protocol is near-native by construction (two thirds of its poses are ≤ 2 Å). It is a
-   positive control, not a benchmark result. The headline protocol is **relax · perturb**; the hard
-   setting is **apo_relax · perturb**.
-2. Sampling is strong but sparse: one Perturb pose in twenty is a hit, so the 300-sample budget is
-   part of the result (success-vs-N above). At 150 poses (thesis budget) the analytic rate is 87 %,
-   which explains why the thesis-era 77–78 % looked lower.
-3. The sampling–scoring gap is ≈ 24 points on PDBbind and PoseBusters (94.7 → 70.6, 94.6 → 71.1)
-   and 15 on Astex; Top-5 recovers about half of it. The scorer is far better than chance (random
-   Top-1 would be ≈ 4 %), so the honest framing is "good but unreliable", not "fails".
-4. Receptor state matters for ranking more than for sampling: relax ≈ crystal > apo_relax in
-   sampling (94.7 / 94.7 / 87.3) but relax > crystal > apo_relax in Top-1 (70.6 / 64.3 / 51.4).
-5. Total score is a poor ranker on the unrelaxed crystal receptor (Top-1 28.9 vs 64.3) and on par
-   with interface delta on relaxed receptors; part of that is the constraint energy in `total_score`
-   (§0.2). This settles Appendix B question 1.
-
----
-
-## 1b. Full-set success rates (2026-10-15; symmetry-corrected RMSD, constraint-free totals)
+## 1. Full-set success rates (2026-10-15; symmetry-corrected RMSD, constraint-free totals)
 
 Source: `data/docking_stats/<set>_full/` extracted through `Result(autocorrect=True)` (every H5 file;
 the tables use the complete complexes: PDBbind 11,444 of 11,460 files,
@@ -308,7 +253,9 @@ delta and by the corrected total score.
    view of the scoring problem — any-hit 88.5 / 88.4 / 94.0 % against Top-1 53.1 / 57.5 / 64.3 %
    (PDBbind / PoseBusters / Astex). `relax` · `perturb` is the realistic holo setting: any-hit
    95.4 / 95.1 / 98.8 %, Top-1 72.0 / 72.9 / 85.7 %, Top-5 84.6 / 83.5 / 91.7 %, a gap of ≈ 23 points.
-   Symmetry correction added 1–3 points everywhere. The interpretation of all six settings is in S1.
+   Compared with the first pass on the legacy zips (uncorrected RMSD, 2026-10-13), the symmetry
+   correction added 1–3 points everywhere (e.g. `relax` · `perturb` Top-1 70.6 → 72.0 % on PDBbind).
+   The interpretation of all six settings is in S1.
 3. One Perturb pose in ≈ 18 is a hit, so the budget matters: at N = 150 (the thesis budget) the
    analytic any-hit rate is 89 %, at 300 it is 93 %.
 4. Interface delta vs. total score as the ranker (Top-1, interface delta / total score):
@@ -331,24 +278,41 @@ delta and by the corrected total score.
 
 ## 2. The stories, by track
 
-The three tracks of the 2026-10-09 story update ([PAPER_OUTLINE.md](PAPER_OUTLINE.md)): **T1 Benchmark**
-(how well does RosettaLigand work, and by which mode does it reach near-crystal poses), **T2 Fix the
-ranking** (can the failure be repaired, and why does it resist), **T3 Affinity**. S2 is the bridge: a
-benchmark result and the premise of T2. Interpretations added on 2026-10-16 are marked *(PE)*.
+The paper is told as three tracks (story update of 2026-10-09), each with a lead contributor:
+
+| Track | Question | Lead | Stories |
+|---|---|---|---|
+| **T1 — Benchmark** | How well does RosettaLigand work on PDBbind, PoseBusters and Astex? *Side aim:* by which mode does it sample near-crystal structures — when does it find the crystal basin at all? | Paul / Luca; side aim Josephine | S1, S2, S3, S4, S8 |
+| **T2 — Fix the ranking** | Can the failure mode (picking the right pose) be repaired? Reweighting + ML heads give mild improvements only; then *why?* — the energy-degeneracy analysis (Appendix A.1) and the per-complex oracle probe (A.2), with UMAP/t-SNE as illustration | Luca; analysis Paul | S5, S6 |
+| **T3 — Affinity** | Can score ↔ binding free energy be improved? Reweighting of the best pose first (prelim: small gain), then the sampled-density free energy with Bayesian uncertainty (A.3) | Paul / Felipe | S7 |
+
+The logic that links them: T1 establishes that the sampler works, T2 that the energies cannot tell
+right from wrong, and T3 turns both facts around — if the samples are physically plausible but the
+energies are not discriminative, use the **distribution of samples** rather than the energy of the
+single best one. The reweighting "failure" is a *result*, not a disappointment: it is evidence about
+the shape of the energy landscape, and is written as such. S2 is the bridge: a benchmark result and
+the premise of T2. Interpretations added on 2026-10-16 are marked *(PE)*.
+
+Core thesis in one line: RosettaLigand is widely used and trusted (REvoLd, best scoring at CACHE
+Challenge #2) yet its standalone docking-and-scoring behaviour has never been characterised at scale
+on modern, leakage-controlled benchmarks; it samples near-native poses well but ranks them poorly,
+the ranking failure resists reweighting and learned heads, and the energy landscape explains why.
+Arc: *characterise → expose the sampling/scoring gap → try to fix scoring and explain why it
+resists → baseline affinity correlation → outlook (Paper 2).*
 
 ### Track T1 — Benchmark
 
 #### S1 — RosettaLigand is a strong sampler, and the six settings show how it works
 
 - **Claim.** A ≤ 2 Å pose is among 300 samples for ≈ 95 % of complexes with the perturbed start on the
-  crystal or relaxed receptor, and for ≈ 88 % on the ligand-away receptor (§1b).
+  crystal or relaxed receptor, and for ≈ 88 % on the ligand-away receptor (§1).
 - **Headline setting *(PE)*: `apo_relax` · `perturb`.** It is the hardest scenario (receptor relaxed
   without its ligand, start displaced by up to 5 Å) and shows the scoring problem most clearly: any-hit
   88.5 / 88.4 / 94.0 % against Top-1 53.1 / 57.5 / 64.3 % (PDBbind / PoseBusters / Astex), a gap of
   30–35 points. `relax` · `perturb` is the realistic holo setting (95 % any-hit, 72 % Top-1) and
   `crystal` · `perturb` the unprepared one.
 - **Ranking score *(PE)*: interface delta.** The tables give no strong performance reason to prefer
-  either score (§1b comparison: within two points on relaxed receptors), but interface delta makes the
+  either score (§1 comparison: within two points on relaxed receptors), but interface delta makes the
   evaluation independent of the structure quality, whereas the total score collapses on the unrelaxed
   crystal receptor (Top-1 29 vs 66 %). Interface delta is used throughout.
 - **Relaxation before docking is not necessary *(PE)*.** The crystal receptor samples as well as the
@@ -359,7 +323,7 @@ benchmark result and the premise of T2. Interpretations added on 2026-10-16 are 
   refined 2026-10-16)*.** In the three `std` runs the ligand starts at (for `apo_relax`: close to) the
   crystal placement, yet only 66 / 66 / 36 % of the poses end within 2 Å. Two facts bound the
   interpretation. (i) The crystal placement *is* a full-atom minimum: during FastRelax of the holo
-  complex the ligand stays within a median 0.26 Å of it (§1b note 1). (ii) The `std` protocol moves
+  complex the ligand stays within a median 0.26 Å of it (§1 note 1). (ii) The `std` protocol moves
   the ligand with the Transform random walk under the coarse grid score *before* any full-atom
   optimisation, so leaving happens in that walk, and the high-resolution stage then settles into the
   nearest basin. The poses that leave are mostly near-misses (median 3.5 Å; only 7 % beyond 5 Å) and
@@ -387,17 +351,17 @@ benchmark result and the premise of T2. Interpretations added on 2026-10-16 are 
   the crystal conformer is in the rotamer library (§0.2); the receptor is holo-derived in all three
   states; `apo_relax` is not an apo structure.
 - **To do.**
-  - Figures for §1b (six-panel success-vs-N; any-hit vs Top-1 per setting) — small.
-  - Decision + `[COMPUTE]`: Appendix C run **A** (random starts in a pocket box, crystal conformer
+  - Figures for §1 (six-panel success-vs-N; any-hit vs Top-1 per setting) — small.
+  - Decision + `[COMPUTE]`: Appendix B run **A** (random starts in a pocket box, crystal conformer
     excluded) if the comparison with DL / Vina / Gold is to be made head-on; start on Astex +
-    PoseBusters. The abstract's "often beating recent deep-learning methods" rests on this.
+    PoseBusters. The abstract draft's "often beating recent deep-learning methods" (Overleaf) rests on this.
   - Literature `[CITE]`: the PoseBusters paper's baseline numbers and their exact conditions.
 
 #### S2 — The score does not reliably pick the pose it found (bridge to T2)
 
 - **Claim.** Top-1 by interface delta sits 23 points below the any-hit rate for `relax` · `perturb` and
   30–35 points below it for `apo_relax` · `perturb`; Top-5 closes about half of the gap.
-- **Can tell now:** §1b, both ranking scores.
+- **Can tell now:** §1, both ranking scores.
 - **Interpretation *(PE)*.** The gap widens exactly when the start is noisy and the receptor bias is
   removed, i.e. when the sampler produces many distinct states of equal energetic profile. The score
   is still far better than chance (random Top-1 would be ≈ 4 %), so the framing is "good but
@@ -427,7 +391,7 @@ benchmark result and the premise of T2. Interpretations added on 2026-10-16 are 
      benchmark's `std` runs show the same mechanism from the other side (S1): the Transform walk
      pushes a third of the ligands into neighbouring, worse-scoring basins, and they stay there.
 - **Relation to the benchmark.** Findings 1–2 are the per-complex version of the `std` vs `perturb`
-  comparison in §1b (a ≤ 5 Å displacement turns 66 % of hits into 6 %); finding 3 connects to the
+  comparison in §1 (a ≤ 5 Å displacement turns 66 % of hits into 6 %); finding 3 connects to the
   energy-degeneracy argument of T2 (many near-degenerate minima that the optimiser does not leave).
 - **To do (only once the inclusion is decided, §6.2):** reproduce the per-start success curves from
   her tables, state her RMSD convention (plain, to the relaxed reference), confirm her contribution.
@@ -437,7 +401,7 @@ benchmark result and the premise of T2. Interpretations added on 2026-10-16 are 
 - **Claim.** PB-valid rates after the RDKit/kekulé fix and RL's position among PB-reported methods.
 - **Can tell now:** nothing — no PB results exist in the repo; thesis numbers are stale by
   construction.
-- **To do (Appendix C run C, analysis-only):** `posebusters` is installed; ligand and receptor for
+- **To do (Appendix B run C, analysis-only):** `posebusters` is a declared dependency; ligand and receptor for
   any pose are reconstructable from the H5 (`Result.docked_mol`, `docked_pdb`). Run on Top-1 and
   best-RMSD poses per protocol for Astex + PoseBusters first (≈ 6 k poses, cheap), then all Perturb
   poses of the two small sets if wanted (≈ 850 k, parallel, hours). Needs a driver script and a
@@ -447,10 +411,10 @@ benchmark result and the premise of T2. Interpretations added on 2026-10-16 are 
 
 | Question | Status |
 |---|---|
-| Q1 crystal or relax? total or interface delta? | **Answered (§1b, S1):** relaxation is not necessary for docking (sampling identical, ≈ 5 points Top-1 with interface delta) unless the total score is used; interface delta is the ranker because it is independent of the structure quality |
-| Q2 pocket recovery from an unbound structure | Not answerable; `apo_relax` is the proxy (it removes the holo bias, S1) and must be worded as such, or run B `[COMPUTE]` |
+| Q1 crystal or relax? total or interface delta? | **Answered (§1, S1):** relaxation is not necessary for docking (sampling identical, ≈ 5 points Top-1 with interface delta) unless the total score is used; interface delta is the ranker because it is independent of the structure quality |
+| Q2 pocket recovery from an unbound structure | Not answerable; `apo_relax` is the proxy (it removes the holo bias, S1) and must be worded as such, or Appendix B run B `[COMPUTE]` |
 | Q3 how tightly RL stays near a near-native input | Answered by the `std` runs (S1): 66 / 66 / 36 % of poses stay within 2 Å, the rest end mostly 2–5 Å away in worse-scoring basins |
-| Q4 how many samples for a ≤ 2 Å pose | **Answered analytically (§1b)**; empirical sub-sampling is small |
+| Q4 how many samples for a ≤ 2 Å pose | **Answered analytically (§1)**; empirical sub-sampling is small |
 | Q5 ranking | S2, T2 |
 | Q6 affinity | S7 |
 
@@ -462,32 +426,31 @@ benchmark result and the premise of T2. Interpretations added on 2026-10-16 are 
   native score.
 - **Can tell now:** nothing from this repo. The pose-ranking heads live in Luca's repo and were
   trained on the 150-pose, pre-fix data; the only learner here is the *affinity* reweighting
-  (`reweighting.py`). The §4.5 table of the outline is the last-known value and is not comparable
-  to Table 1 (the native score's Top-1 is 70 %, the thesis's ML-head Top-1 was ≈ 50 %: different
+  (`reweighting.py`). The thesis-era table (§3) is the last-known value and is not comparable
+  to §1 (the native score's Top-1 is 72 %, the thesis's ML-head Top-1 was ≈ 50 %: different
   data and definitions `[VERIFY]`).
 - **To do (medium):** implement in `docking_analysis/`: (a) per-complex listwise or pairwise linear
   reweighting of the seven interface terms (the honest "can weights fix it" test); (b) a
   LambdaRank-style head and one tree model as references; (c) a leakage-aware split (time split by
   PDBbind year, or sequence clustering from the cleaned PDBs with mmseqs2 / CD-HIT, or an
   established LP-PDBBind split `[VERIFY]`); evaluate Top-1/Top-5 on PDBbind test + Astex +
-  PoseBusters. Needs scikit-learn. Decide whether the thesis numbers appear at all.
+  PoseBusters. Decide whether the thesis numbers appear at all.
 
-#### S6 — Why ranking resists repair: energy degeneracy (D.1) and per-complex oracle (D.2)
+#### S6 — Why ranking resists repair: energy degeneracy (Appendix A.1) and per-complex oracle (A.2)
 
 - **Claim.** Wrong poses carry energy vectors indistinguishable from correct ones, and even a
   per-complex oracle classifier reaches limited AUC: the information is not in the seven terms.
 - **Sampling-side evidence already in hand *(PE)*:** the `apo_relax` · `perturb` setting (S1, S2)
   is where RosettaLigand samples the most diverse states of equal energetic profile and where Top-1 falls
-  furthest below the any-hit rate; D.1/D.2 are the quantitative version of that observation.
+  furthest below the any-hit rate; Appendix A.1/A.2 are the quantitative version of that observation.
 - **Can tell now:** nothing computed, but every input exists (seven non-zero `raw_delta_*` terms,
   `raw_*` totals for the robustness check) for all 20.6 M poses.
-- **To do (medium; hours of compute, parallelisable):** implement D.1 (per-complex z-scoring;
-  nearest-neighbour distances incorrect → correct vs correct → correct vs cross-complex control;
-  density plot, hexbin, headline percentages) and D.2 (per-complex logistic regression with
+- **To do (medium; hours of compute, parallelisable):** implement Appendix A.1 (per-complex
+  z-scoring; nearest-neighbour distances incorrect → correct vs correct → correct vs cross-complex
+  control; density plot, hexbin, headline percentages) and A.2 (per-complex logistic regression with
   cross-validation; AUC distribution; correlation with the degeneracy fraction; gap to global
   reweighting). Run on Perturb poses (Standard poses are near-native by construction), chunked over
-  the full zip like today's script. Needs scikit-learn or a numpy logistic regression. UMAP/t-SNE
-  only as illustration (umap-learn missing).
+  `docked.parquet`. UMAP/t-SNE only as illustration.
 
 ### Track T3 — Affinity
 
@@ -495,17 +458,19 @@ benchmark result and the premise of T2. Interpretations added on 2026-10-16 are 
 
 - **Claim.** Weak baseline correlation (r ≈ 0.4) of the minimum interface delta with log Kd;
   best-pose reweighting adds a small gain.
-- **Can tell now:** the whole grid exists (`extract_docking_stats.py`: 3 aggregations × 4 term
-  selections + clustered aggregation; default vs learned weights; cluster cache for 3,579 complexes
-  at 2 Å and 4 Å) but has not been re-run since the cleanup → figures dir empty; Felipe's
-  0.39 / 0.38 / 0.42 are `[FROM REPO]`. Known limits of the current implementation: exact Kd only
-  (3,579), random 80/20 split, single seed, non-negative weights, MAE loss, no confidence intervals,
-  interface terms only, relax + apo_relax Perturb poses only.
-- **To do:** re-run as is (≈ 10–20 min with the cache) to refresh the numbers; then extend labels to
-  Ki (one regex change; 6,721 complexes) with IC50 reported separately; bootstrap CIs; the
-  leakage-aware split shared with S5; CASF-2016 core as external test (276 docked); with and without
-  Standard poses. D.3 step 2 (sampled-density free energy with Bayesian error bars) is new code and
-  still an open Paper 1 / Paper 2 boundary decision; do not start it before that is settled.
+- **Can tell now:** nothing current. The legacy grid (`extract_docking_stats.py`: 3 aggregations × 4
+  term selections + clustered aggregation; default vs learned weights) defined the experiment, but its
+  inputs (exact-Kd zip, cluster cache for 3,579 complexes at 2 Å and 4 Å) were deleted on 2026-10-19
+  and it is to be rewritten on the full extraction; Felipe's 0.39 / 0.38 / 0.42 (min / mean-of-10 /
+  reweight) are `[FROM REPO]`. Known limits of the legacy implementation that the rewrite must lift:
+  exact Kd only (3,579), random 80/20 split, single seed, non-negative weights, MAE loss, no
+  confidence intervals, interface terms only, relax + apo_relax Perturb poses only, plain RMSD in the
+  clustering.
+- **To do:** rewrite the grid on `docked.parquet` (corrected totals and RMSDs); extend labels to Ki
+  (6,721 complexes) with IC50 reported separately; bootstrap CIs; the leakage-aware split shared with
+  S5; CASF-2016 core as external test (276 docked); with and without Standard poses. Appendix A.3
+  step 2 (sampled-density free energy with Bayesian error bars) is new code and still an open
+  Paper 1 / Paper 2 boundary decision; do not start it before that is settled.
 
 ### Cross-cutting
 
@@ -519,30 +484,43 @@ benchmark result and the premise of T2. Interpretations added on 2026-10-16 are 
 
 ---
 
-## 3. Corrections to PAPER_OUTLINE.md (data contradicts or refines)
+## 3. Thesis-era claims that the data contradicts or refines (do not quote them)
 
-- §3.1: "11,518 before docking" → 11,518 first cleaned; 11,460 in the final input set; 11,444
-  complete.
-- §3.2: conformers are 49 / 199 / 299 generated **plus the crystal conformer, which is in the
-  rotamer library** (new caveat).
-- §3.3: "Relax-Ligaway is holo-derived" confirmed; "mean prep ≈ 4.7 h" plausible, compute the
-  distribution.
-- §3.4: 300 poses per protocol, 1,800 per complex, confirmed.
-- §3.5: RMSD is not symmetry-corrected (new caveat); `total_score` includes constraint energy (new
-  caveat).
-- §4.1: the thesis table (PDBbind Std 93 / Perturb 77; Astex 82.4; PoseBusters 80.7) is superseded
-  by Table 1. Any-pose Perturb rates are now 94–99 % (300 samples), and the Standard rates are not
-  comparable to anything. Establish what the thesis numbers measured before quoting them `[VERIFY]`.
-- §4.2 / §4.5: the native score's Top-1 is ≈ 70 %, far above the thesis's ML-head Top-1 of ≈ 50 %;
-  the two were measured differently and must not be mixed.
-- §4.3 (Josephine): the outline's bullet "skipping the high-resolution step when generating starts
-  raises success" matches her 4j1p tables; the 2026-10-16 reframing in S3 states that finding in the
-  data's direction and flags the proposed mechanism for verification.
-- Appendix A: the failure-reason counts cannot be verified from the repo's failed-log notebook
-  (57 logs across all sets: IndexError 19, OSError 8, Rosetta 24, KeyError 5, 1 unknown);
-  PoseBusters 388 vs 390 expected; Astex failed-id list empty.
+The retired outline carried numbers from Luca's thesis (150 poses per protocol, pre-fix ligand
+handling, uncorrected RMSD) and from the Confluence pages. They are listed here only so that nobody
+quotes them by accident; every one of them is superseded by §1 or must be recomputed.
 
----
+- Dataset size: "11,518 before docking" → 11,518 first cleaned; 11,460 in the final input set;
+  11,444 complete (§0.1).
+- Conformers: 49 / 199 / 299 generated **plus the crystal conformer in the rotamer library** (new
+  caveat, §0.2).
+- Relax-Ligaway is holo-derived (confirmed); "mean prep ≈ 4.7 h" is plausible, compute the
+  distribution `[FROM REPO]`.
+- Sampling: 300 poses per protocol, 1,800 per complex (the thesis used 150).
+- RMSD was not symmetry-corrected and `total_score` included the constraint energy; both are now
+  corrected on access (§0.2).
+- Thesis sampling table (% poses ≤ 2 Å: PDBbind Standard 93 / Perturb 77, Astex 82.4, PoseBusters
+  80.7) is superseded by §1; any-pose Perturb rates are now 88–99 % with 300 samples, and the
+  Standard rates are positive controls, not benchmark results. Establish what the thesis numbers
+  measured before quoting them `[VERIFY]`.
+- Thesis ML-head table on PDBbind (Top-1 / Top-5): Random Forest 51.5 / 63.1, Gradient Boosting
+  50.4 / 63.9, MLP regression 49.6 / 62.0, MLP classification 49.9 / 62.5, LambdaRank-style pairwise
+  52.3 / 66.1, AllRank LambdaRank 36.6 / 49.0, NeuralNDCG 38.3 / 51.8, linear reweight 51.2 / 65.8.
+  Measured on different data with different definitions than §1 (native score Top-1 ≈ 72 %); the two
+  must not be mixed. Luca's rerun on the 300-pose data is in §6.1.
+- Thesis PB-validity ranking (RMSD-only: first among PoseBusters-reported methods; RMSD ≤ 2 Å and
+  PB-valid: third behind Vina and Gold; failure modes dominated by kekulisation and
+  `minimum_distance_to_protein`) predates the RDKit/kekulé fix and must be recomputed (S4).
+- Josephine: "skipping the high-resolution step when generating starts raises success" matches her
+  4j1p tables; S3 states that finding in the data's direction and flags the mechanism for
+  verification.
+- Failure-reason counts quoted from Confluence (PDBbind: valence error after reprotonation 21,
+  Rosetta internal 26, atom naming 11, PDB-header differences 15, corrupted h5 1; PoseBusters: Rosetta
+  internal 24, header 3, unreadable SDF 2, unusual energy term 5, unfinished 6) cannot be verified
+  from the 57 failed logs in `data/failed_logs/` (IndexError 19, OSError 8, Rosetta 24, KeyError 5,
+  1 unknown); PoseBusters 388 complete vs 390 expected `[VERIFY]`.
+- Felipe's affinity correlations (r ≈ 0.392 min, 0.376 mean-of-10, 0.418 reweight) were computed on
+  the legacy data `[FROM REPO]` (S7).
 
 ## 4. Decisions that gate the code work
 
@@ -550,24 +528,25 @@ benchmark result and the premise of T2. Interpretations added on 2026-10-16 are 
    `relax` · `perturb` as the realistic holo setting; `crystal` · `perturb` shows relaxation is
    optional; the three `std` runs are positive controls and the evidence that the optimiser can leave
    the correct basin. Interface delta is the ranking score.
-2. Whether to launch Appendix C run **A** (random starts, no crystal conformer): the §4.1
-   comparison with DL and classical docking, and the abstract's "often beating" sentence, depend on
-   it.
+2. Whether to launch Appendix B run **A** (random starts, no crystal conformer): the head-on
+   comparison with DL and classical docking (S1), and the abstract draft's "often beating" sentence,
+   depend on it.
 3. Leakage-aware split definition (shared by S5 and S7).
-4. Paper 1 / Paper 2 boundary for D.3 step 2.
+4. Paper 1 / Paper 2 boundary for Appendix A.3 step 2.
 5. Labels for T3: Kd + Ki headline, IC50 separate.
 6. Symmetry-corrected RMSD: done (auto-corrected on access, stored values kept as legacy).
 
 ## 5. Suggested order of work
 
-1. `docking_analysis/benchmark.py` from today's script (S1, S2, S8) + figures → T1/T2 tables final
-   except for symmetry correction.
-2. Install scikit-learn; D.1 + D.2 (S6) on Perturb poses.
+1. *Done:* `docking_analysis/benchmark.py` (S1, S2, S8) on the symmetry-corrected full extraction.
+   *Open:* the figures (six-panel success-vs-N, any-hit vs Top-1 per setting, rank-of-first-hit
+   density).
+2. Appendix A.1 + A.2 (S6) on Perturb poses.
 3. PoseBusters validity on Top-1 / best poses (S4).
-4. Re-run the affinity grid; Ki extension; bootstrap CIs (S7).
+4. Rewrite the affinity grid on the full extraction; Ki extension; bootstrap CIs (S7).
 5. Pose-ranking reweighting + LambdaRank with the agreed split (S5).
 6. Josephine's re-plots + dataset-wide proxies (S3).
-7. Decide on run A; run the symmetry-corrected RMSD pass in the background.
+7. Decide on Appendix B run A.
 
 ---
 
@@ -585,7 +564,8 @@ one complex per batch) and `reweighting/` (bias-free linear layer on the same fe
 loss) — plus `ML_pipeline_description.md` with the current numbers. Those numbers are already on
 **our new 300-pose data**: his `datasets/*.pkl` are pandas frames with our ids (e.g. `1G9V_RQ3`),
 and the Rosetta baseline he reports (Success@1 70.9 / 84.5 / 71.1 % on PoseBusters / Astex /
-PDBbind) matches Table 1's relax·perturb Top-1 within one complex. His results: reweighter
+PDBbind) matches the uncorrected relax·perturb Top-1 of the first pass (71.1 / 83.3 / 70.6 %;
+72.9 / 85.7 / 72.0 % after symmetry correction, §1) within one complex. His results: reweighter
 74.5 / 84.5 / 73.3 %, ranker 74.7 / 86.9 / 73.4 % → +2–4 points Top-1, +1–3 points Top-5. That is
 the T2 "mild improvement" result, on the right data but with the wrong labels and features:
 
@@ -639,8 +619,8 @@ Proposal:
 
 - copy the CSVs, the three XML protocols and `options` into
   `data/start_dependency/<pdb>_<variant>/` (git-ignored) with a README naming the source folders
-  and the mapping above; keep the twelve `success_rates.csv` summaries tracked under
-  `reference/start_dependency/` (small, and they are the numbers the paper quotes);
+  and the mapping above; keep the twelve `success_rates.csv` summaries tracked as package data
+  under `docking_analysis/start_dependency/` (small, and they are the numbers the paper quotes);
 - a `docking_analysis/start_dependency.py` loader that parses the Rosetta score CSVs into tidy
   tables (complex, variant, start id, starting RMSD, condition, pose, score, interface delta,
   RMSD), recomputes the per-start success rates, and produces the two figures the story needs:
@@ -648,3 +628,165 @@ Proposal:
   comparison;
 - optional: symmetry-corrected RMSDs from her PDBs with `docking.ligand_rmsd` where the ligand is
   symmetric; otherwise state that her RMSDs are uncorrected.
+
+---
+
+## Appendix A — Specifications of the new analyses (from the retired outline, Addendum D)
+
+Written as a spec to be folded into Methods/Results later. Nothing here has been implemented or
+tested. All three run on **existing data**; none needs new docking.
+
+### A.1 Energy-degeneracy analysis — "wrong poses with right energies" (T2, S6)
+
+**Claim to establish:** a large fraction of clearly incorrect poses have energy profiles nearly
+identical to a correct one, so *no* reweighting of these terms can separate them. This is the
+quantitative version of the UMAP picture.
+
+**Procedure, per complex:**
+
+1. Split the poses into **correct** (RMSD ≤ 2 Å) and **incorrect** (> 2 Å). Complexes with no
+   correct pose are excluded from this analysis (report how many).
+2. Take the per-pose **energy vector**. Default: the `raw_delta_*` interface terms restricted to
+   the non-zero set (`fa_atr`, `fa_elec`, `fa_pair`, `fa_rep`, `fa_sol`, `hbond_bb_sc`,
+   `hbond_sc`). Report the `raw_*` total-energy version as a robustness check.
+3. **Standardise within the complex** (z-score each term over that complex's poses). Energies are
+   not comparable across complexes, and the terms differ in scale by orders of magnitude; without
+   this, the distance is dominated by `fa_atr`.
+4. For every incorrect pose *i*, compute the distance to its **nearest correct pose**:
+   $d_i = \min_{j \in \text{correct}} \lVert \mathbf{e}_i - \mathbf{e}_j \rVert$.
+   Euclidean on standardised terms as the default; **Mahalanobis** using the within-complex
+   covariance as the principled variant (the terms are strongly correlated) `[TODO]` decide which
+   goes in the main text.
+5. Keep per incorrect pose: $d_i$, its RMSD, its Δ(total score) and Δ(interface delta) to that
+   nearest correct pose, and the complex id.
+
+**Reference scales that must be plotted alongside, or the number means nothing:**
+
+- **correct–correct** nearest-neighbour distances (the within-basin spread). If incorrect poses sit
+  at the same distance from a correct pose as correct poses do from each other, the energies are
+  genuinely non-discriminative. *This comparison is the result.*
+- **incorrect–incorrect** nearest-neighbour distances (the decoy cloud's own density).
+- a **cross-complex permutation** control: distances to correct poses of a *different* complex,
+  which sets the "unrelated energy profile" scale.
+
+**Figures.**
+
+- **Density plot** of $d_i$ for the three populations above, pooled over complexes.
+- **Scatter:** $d_i$ (x) vs. RMSD (y), coloured by Δ(interface delta), hexbin because of the point
+  count. The expected signal is a dense band at low $d_i$ spanning the **whole** RMSD range — the
+  "arbitrarily wrong but energetically identical" population.
+- Optional per-complex summary: fraction of incorrect poses whose $d_i$ falls below the median
+  correct–correct distance. One number per complex, histogram over complexes, and a table by
+  protocol.
+
+**Headline statistics to report:**
+
+- % of incorrect poses that are **energy-degenerate** with a correct one, defined as
+  $d_i$ below the complex's median correct–correct distance **and** RMSD > 5 Å (not a near-miss);
+- % of complexes where the **best-scoring** pose is such a degenerate decoy — this connects the
+  analysis directly to the Top-1 failures of S2;
+- the same split by protocol and by receptor state.
+
+**Pitfalls to avoid:**
+
+- The distance and the score difference are correlated by construction. State the claim as
+  *similar energy vector* **and** *similar or better total score* **and** *large RMSD*; the
+  Δ-score column makes that explicit.
+- Standardisation must use that complex's own poses only; any global scaling reintroduces
+  cross-complex incomparability.
+- Report whether the degenerate decoys concentrate in particular protocols (they may be an
+  artefact of perturbed starts) or in particular target classes.
+
+### A.2 Per-complex oracle probe — an upper bound on what reweighting can achieve (T2, S6)
+
+A short, strong companion to A.1. For each complex **separately**, fit a linear classifier on the
+energy terms to separate correct from incorrect poses, with cross-validation **within** that
+complex, and report AUC.
+
+**Why it matters:** this classifier is allowed to choose the best possible weights *for that one
+complex* — strictly more freedom than any global reweighting, including Rosetta's own weights and
+Luca's learned ones. Its AUC is therefore an **upper bound** on the per-complex performance any
+reweighting scheme could reach. If the median oracle AUC is low, the S5 result ("reweighting only
+helps a little") stops being a statement about our models and becomes a statement about the term
+set. That is the sentence the discussion needs.
+
+Report: distribution of oracle AUC over complexes; its correlation with the A.1 degeneracy
+fraction; and the gap between oracle AUC and the AUC actually achieved by the global reweighting
+and the LambdaRank head.
+
+### A.3 Affinity track — from best-pose reweighting to a sampled-density free energy (T3, S7)
+
+**Step 1 (have prelim data).** Fit a reweighting of the terms on the lowest-energy pose per
+complex against the reported affinity. Expect a modest gain over the default score
+`[FROM REPO]` refresh the number. Report it as the baseline, with the leakage-aware split.
+
+**Step 2 (the idea).** T1 and T2 together say: the sampler produces physically plausible poses and
+concentrates them where its own energy is low, but the energies of individual poses do not
+identify the right one. So use the **distribution** of samples rather than the energy of the best
+one:
+
+1. Represent each pose in a low-dimensional pose space (ligand rigid-body coordinates in the
+   receptor frame + torsions, or a reduced coordinate from the clustering) `[TODO]` choose.
+2. **Fit a smooth density / energy surface** to the sampled poses (kernel density, a mixture
+   model, or a GP on the energies). The point of the fit is to distinguish **basins** (narrow,
+   deep, heavily sampled) from **flat regions** (broad, shallow, sparsely sampled but entropically
+   large) — the information a single minimum throws away.
+3. Integrate $e^{-\beta E}$ over the fitted surface to get an effective $Z$, and map back to a
+   free energy. Correct for the sampler's own bias toward low energy, otherwise the enthalpy is
+   counted twice (this is the failure mode of the earlier naive attempt; see
+   [PAPER2_CONCEPT.md](PAPER2_CONCEPT.md) §2.2).
+4. **Bayesian uncertainty:** place a posterior on the fitted surface (GP posterior, or a Bayesian
+   bootstrap over poses) and propagate it to a posterior over ΔG per complex. Report predicted
+   affinity *with error bars*, and check that the error bars are calibrated — complexes with few
+   distinct basins should come out visibly less certain. This is a genuine selling point: almost
+   no docking score reports a calibrated uncertainty.
+
+**Paper 1 / Paper 2 boundary — open decision (§4, item 4).** Step 2 is the descriptive, non-learned
+sibling of Paper 2's estimator ladder (S3–S5 there). Suggested line, to be agreed with co-authors:
+
+- **Paper 1** keeps step 1, plus *one* fitted-density estimator with Bayesian error bars,
+  evaluated descriptively on the existing data. It ends on "the ensemble carries information the
+  single best pose does not".
+- **Paper 2** keeps the trained version: learned proposal density, the bound/separated
+  thermodynamic cycle, the Boltzmann-consistent objective, the estimator comparison and the
+  calibration tests.
+- If step 2 turns out to work very well, revisit the split — it may belong entirely to Paper 2.
+
+---
+
+## Appendix B — Additional compute this paper needs `[COMPUTE]`
+
+Everything else in this file runs on the **existing** 11,444 × 1,800 pose dataset. These are the
+only items that require new cluster runs. A and B are shared with Paper 2 (= C3 and C5 in
+[PAPER2_CONCEPT.md](PAPER2_CONCEPT.md) §4), so run them once and use them in both.
+
+| ID | Run | Needed for | Priority | Notes |
+|---|---|---|---|---|
+| **A** | **Pocket-box docking from random starts** — random ligand position/orientation inside a pocket box, random conformer, no crystal-pose seeding, crystal conformer excluded from the rotamer library; ~300 poses per complex | S1/S2 fair comparison against blind DL methods; the only version of "docking power" that is not re-docking | **High** | Start on Astex + PoseBusters (472 complexes) and a PDBbind subset; extend if it works. Also = Paper 2 / C3 |
+| **B** | **True apo receptors** for targets with an apo PDB entry | S8 question 2 (pocket recovery from an unbound structure) | Medium | Requires an apo↔holo matching step `[TODO]`; without it, that question must be reworded |
+| **C** | **Run the PoseBusters validity suite** on the current poses | S4 corrected PB-valid ranking after the RDKit/kekulé fix | **High** | Analysis-level compute only, no docking |
+| **D** | Optional: **more samples on a subset** (e.g. 1,000 poses for a few hundred complexes) | S1 saturation check — does the success-vs-N curve flatten before 300? | Low | The analytic success-vs-N of §1 may already answer it |
+
+Not needed for Paper 1: unconstrained relaxation and thermal basin sampling (Paper 2 / C1, C2).
+
+---
+
+## Appendix C — Open writing decisions (from the retired outline)
+
+- [ ] Title. Candidates: *"How good is RosettaLigand, really? A large-scale characterisation of
+      physics-based protein–ligand docking and its scoring limits"*; *"RosettaLigand at scale:
+      strong sampling, weak ranking, and what that tells us about the scoring function"*. The
+      abstract draft (Overleaf; the temporary `docs/abstract.tex` was removed on 2026-10-19) uses
+      *"Physics-based protein–ligand docking at scale: RosettaLigand samples near-native poses but
+      cannot reliably rank them"*.
+- [ ] Author order and contribution statement (Luca: thesis, benchmark + ML scoring; Josephine:
+      starting-position analysis; Felipe: affinity/ensemble analysis; Paul: pipeline, ensemble
+      scoring, integration; Chris, Rocco, Jens).
+- [ ] Target journal: JCIM / JCTC.
+- [ ] How much of the lab's own RosettaLigand work to cite up front (idea-3 brief: a lot) `[CITE]`;
+      the PoseBusters paper's baseline numbers and their exact conditions `[CITE]`.
+- [ ] Where the raw data is deposited (e.g. Zenodo) so Paper 2 can build on the same DOI (S9).
+- [ ] Replace the random splits with a leakage-aware split, or justify keeping them (§4, item 3).
+- [ ] Wording rules fixed already: Relax-Ligaway / `apo_relax` is a holo-derived receptor relaxed
+      without its ligand, never "apo"; nothing here is blind docking (Standard starts at the crystal
+      placement, Perturb is pocket-centred) and the comparison with DL methods must say so.

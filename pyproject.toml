@@ -6,9 +6,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "h5py>=3.15.1",
-    "ipykernel>=7.1.0",
     "matplotlib>=3.10.7",
-    "plinder>=0.2.25",
+    "posebusters>=0.6.0",
     "pyarrow>=22.0.0",
     "pyrosetta",
     "rdkit>=2025.9.1",

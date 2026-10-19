@@ -1,8 +1,8 @@
 # Paper 2 — Concept: Enthalpy from the Scorer, Entropy from the Sampler
 
 > **Status:** concept, not yet an outline. Written 2026-09-22 after deciding the two-paper split.
-> Paper 1 (characterisation of RosettaLigand, JCIM/JCTC) lives in
-> [PAPER_OUTLINE.md](PAPER_OUTLINE.md). This paper targets an ML venue.
+> Paper 1 (characterisation of RosettaLigand, JCIM/JCTC) is planned in
+> [PAPER1_STORY_INVENTORY.md](PAPER1_STORY_INVENTORY.md). This paper targets an ML venue.
 >
 > **Headline is decided by results, not now** (see §9). If the method works convincingly, the
 > method is the headline. If it does not, the dataset/benchmark is the headline and the method
@@ -130,8 +130,9 @@ outcome is a result.
 ## 4. Additional compute (what "more compute" buys, in priority order)
 
 Each item states what it is for. None of them is needed to start (§6.1 runs on existing data).
-**C3 and C5 are shared with Paper 1** (= runs A and B in [PAPER_OUTLINE.md](PAPER_OUTLINE.md)
-Appendix C), so they only need to be launched once and serve both papers. C1, C2 and C4 are
+**C3 and C5 are shared with Paper 1** (= runs A and B in
+[PAPER1_STORY_INVENTORY.md](PAPER1_STORY_INVENTORY.md) Appendix B), so they only need to be
+launched once and serve both papers. C1, C2 and C4 are
 Paper 2 only.
 
 **C1. Unconstrained relaxations, more seeds. `[COMPUTE]` — high priority, cheap.**
@@ -210,8 +211,8 @@ For S5: a density model over the pose representation (ligand rigid body in the r
 samples from a **known start distribution** (Perturb runs now, C3 later).
 
 Clustering is joint on ligand RMSD (~1 Å) **and** interface χ, so distinct sidechain states under
-one ligand placement count as separate microstates (the existing `cluster_cache_filtered_v2/`
-clusters on ligand RMSD only `[VERIFY]`).
+one ligand placement count as separate microstates (the legacy clustering in
+`docking_analysis/clustering.py` clusters on plain ligand RMSD only).
 
 ### 5.3 Losses
 
@@ -287,7 +288,8 @@ version (Standard vs. Perturb populations across all complexes). She is a co-aut
 - **Splits:** protein-family clustering at 30–50 % sequence identity (or an established
   leak-proof PDBbind split such as LP-PDBBind `[VERIFY]`). A random split is reported only as a
   secondary number.
-- **External tests:** CASF-2016 core set (`reference/2016_core_set/`, with its leakage caveat);
+- **External tests:** CASF-2016 core set (`hacsplit == "test"` in `docking_analysis/splits.csv`,
+  with its leakage caveat);
   PoseBusters (disjoint from PDBbind by construction); Astex.
 - **Labels:** headline on Kd/Ki only; IC50 separately or with assay type fed into $c(\cdot)$.
 - **Metrics (CASF decomposition):** docking power (top-1/top-5 at 2 Å), scoring power (Pearson r),
@@ -364,10 +366,10 @@ realistic.
       material moves here).
 - [ ] **Boundary moved on 2026-10-09:** Paper 1's story update gives it a third track (affinity),
       ending in a fitted-density free energy with Bayesian error bars — see
-      [PAPER_OUTLINE.md](PAPER_OUTLINE.md) Addendum D.3. That is the descriptive sibling of S3–S5
-      here. Decide which paper owns it before either is drafted; if it works well, it probably
+      [PAPER1_STORY_INVENTORY.md](PAPER1_STORY_INVENTORY.md) Appendix A.3. That is the
+      descriptive sibling of S3–S5 here. Decide which paper owns it before either is drafted; if it works well, it probably
       belongs here and Paper 1 stops after the best-pose reweighting.
-- [ ] Paper 1's energy-degeneracy analysis (Addendum D.1) and oracle probe (D.2) are the cleanest
+- [ ] Paper 1's energy-degeneracy analysis (inventory Appendix A.1) and oracle probe (A.2) are the cleanest
       motivation for this paper's premise ("the energies cannot rank; use the ensemble"). Cite
       them rather than repeating them.
 - [ ] Which leak-proof split to adopt.

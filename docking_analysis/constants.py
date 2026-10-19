@@ -12,12 +12,20 @@ from pathlib import Path
 # Paths
 # ---------------------------------------------------------------------------
 REPO_ROOT  = Path(__file__).resolve().parent.parent
+PACKAGE_DIR         = Path(__file__).resolve().parent
 DATA_DIR            = REPO_ROOT / "data"
-ZIP_PATH            = DATA_DIR / "docking_stats" / "pdbbind_docking_data.zip"
-FILTERED_ZIP        = DATA_DIR / "docking_stats" / "pdbbind_relax_perturb_filtered_kd_v2.zip"
 INDEX_PATH          = DATA_DIR / "pdbbind_2020plus" / "INDEX_general_PL.2020R1.lst"
 OUTPUT_DIR          = DATA_DIR / "figures"
-SCFX_WEIGHTS_PATH   = Path(__file__).resolve().parent / "scfx_weights.json"
+
+# small tracked reference data shipped with the package
+SCFX_WEIGHTS_PATH   = PACKAGE_DIR / "scfx_weights.json"      # score-function weights as dumped by the runner
+FAILED_PDB_IDS_DIR  = PACKAGE_DIR / "failed_pdb_ids"         # <set>.txt: complexes whose docking failed
+SPLITS_PATH         = PACKAGE_DIR / "splits.csv"             # pdb, plindersplit, hacsplit, cleansplit, lppdbbindsplit
+
+# inputs of the legacy affinity grid (data.py / clustering.py / extract_docking_stats.py).
+# The files were deleted on 2026-10-19; the grid is to be rewritten on the full extraction.
+ZIP_PATH            = DATA_DIR / "docking_stats" / "pdbbind_docking_data.zip"
+FILTERED_ZIP        = DATA_DIR / "docking_stats" / "pdbbind_relax_perturb_filtered_kd_v2.zip"
 H5_DIR              = DATA_DIR / "pdbbind_h5"
 H5_DIRS             = {                      # per benchmark set (docking_analysis.extract)
     "pdbbind":    DATA_DIR / "pdbbind_h5",
@@ -25,7 +33,7 @@ H5_DIRS             = {                      # per benchmark set (docking_analys
     "astex":      DATA_DIR / "astex_h5",
 }
 EXTRACT_DIR         = DATA_DIR / "docking_stats"   # full extractions live in <EXTRACT_DIR>/<set>_full/
-CLUSTER_CACHE_DIR   = DATA_DIR / "docking_stats" / "cluster_cache_filtered_v2"
+CLUSTER_CACHE_DIR   = DATA_DIR / "docking_stats" / "cluster_cache_filtered_v2"   # legacy affinity grid (deleted)
 
 # ---------------------------------------------------------------------------
 # Unit → Molar conversion factors

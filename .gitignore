@@ -6,10 +6,5 @@ __pycache__/
 # (large, not version-controlled). See CLAUDE.md.
 /data/
 
-# Scratch structures written to the repo root by the __main__ smoke blocks of
-# docking/result.py and docking/load_ligand.py
-/*.pdb
-/*.sdf
-
 # vendored PyRosetta wheel (licensed, large) - see pyproject.toml [tool.uv.sources]
 wheels/

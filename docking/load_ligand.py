@@ -293,19 +293,3 @@ def mol_result( rdkit_mol, pdb_str, atmname_to_index ):
             mol.GetConformer(0).SetAtomPosition(atmname_to_index[name], Point3D(x,y,z))
 
     return mol
-
-if __name__ == '__main__':
-
-    mol = load_ligand(lig_file='data/pdbbind_cleaned/10gs/10gs_ligand.sdf')
-
-    mol = generate_conformers(mol)
-
-    output_filename = "reprotonated.sdf"
-    writer = Chem.SDWriter(output_filename)
-    writer.SetKekulize(False)
-    for cid in range(mol.GetNumConformers()):
-        writer.write(mol, confId=cid)
-    writer.close()
-
-    mol = load_ligand('reprotonated.sdf')
-    print(mol)

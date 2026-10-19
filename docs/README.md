@@ -12,13 +12,11 @@ file(s) it documents.
 
 ## Paper 1 (characterisation of RosettaLigand)
 
-- [abstract.tex](abstract.tex) — the current abstract (work in progress; `abstract.pdf`
-  is its rendered copy).
-- [PAPER_OUTLINE.md](PAPER_OUTLINE.md) — section scaffold, the three-track story, the
-  specification of the new analyses (Addendum D) and the extra compute (Appendix C).
-- [PAPER1_STORY_INVENTORY.md](PAPER1_STORY_INVENTORY.md) — per story: what the data
-  supports today (with the full-set success tables), the caveats, and what is still
-  missing. The most recent of the planning documents; start here.
+- [PAPER1_STORY_INVENTORY.md](PAPER1_STORY_INVENTORY.md) — the planning document of
+  Paper 1: the three-track story, per story what the data supports today (with the
+  full-set success tables), the caveats, what is still missing, the specifications of
+  the new analyses (Appendix A) and the additional compute (Appendix B). The earlier
+  section outline was retired on 2026-10-19 (see the git history for it).
 
 ## Paper 2 (deferred)
 
