@@ -212,7 +212,7 @@ samples from a **known start distribution** (Perturb runs now, C3 later).
 
 Clustering is joint on ligand RMSD (~1 Å) **and** interface χ, so distinct sidechain states under
 one ligand placement count as separate microstates (the legacy clustering in
-`docking_analysis/clustering.py` clusters on plain ligand RMSD only).
+`affinity/clustering.py` clusters on plain ligand RMSD only).
 
 ### 5.3 Losses
 

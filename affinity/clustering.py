@@ -1,5 +1,5 @@
 """
-docking_analysis.clustering
+affinity.clustering
 ----------------------------
 RMSD-based greedy clustering of docked poses per PDB.
 

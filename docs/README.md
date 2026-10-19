@@ -32,8 +32,8 @@ file(s) it documents.
 - `benchmarks.md` — the PoseBusters / Astex Diverse evaluation sets and how they
   differ from the PDBbind set; the success-rate metrics of `docking_analysis/benchmark.py`.
 - `reweighting.md` — the energy-term reweighting model, aggregation strategies,
-  clustering, and evaluation (source: `docking_analysis/`), once the affinity grid is
-  ported to the full extraction.
+  clustering, and evaluation (source: the rewritten `affinity/` package), once the
+  affinity track is rewritten on the full extraction.
 
 See [../CLAUDE.md](../CLAUDE.md) for the code-level overview and
 [../README.md](../README.md) for the project summary.

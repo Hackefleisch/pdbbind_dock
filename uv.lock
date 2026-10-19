@@ -847,13 +847,12 @@ wheels = [
 [[package]]
 name = "pdbbind-dock"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "h5py" },
     { name = "matplotlib" },
     { name = "posebusters" },
     { name = "pyarrow" },
-    { name = "pyrosetta" },
     { name = "rdkit" },
     { name = "scikit-learn" },
     { name = "scipy" },
@@ -864,13 +863,17 @@ dependencies = [
     { name = "umap-learn" },
 ]
 
+[package.dev-dependencies]
+docking = [
+    { name = "pyrosetta" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "h5py", specifier = ">=3.15.1" },
     { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "posebusters", specifier = ">=0.6.0" },
     { name = "pyarrow", specifier = ">=22.0.0" },
-    { name = "pyrosetta", path = "wheels/pyrosetta-2025.47+release.8bb54e8a6d-cp311-cp311-linux_x86_64.whl" },
     { name = "rdkit", specifier = ">=2025.9.1" },
     { name = "scikit-learn", specifier = ">=1.9.1" },
     { name = "scipy", specifier = ">=1.16.3" },
@@ -880,6 +883,9 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "umap-learn", specifier = ">=0.5.12" },
 ]
+
+[package.metadata.requires-dev]
+docking = [{ name = "pyrosetta", path = "wheels/pyrosetta-2025.47+release.8bb54e8a6d-cp311-cp311-linux_x86_64.whl" }]
 
 [[package]]
 name = "pillow"

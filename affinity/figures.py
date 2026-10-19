@@ -1,5 +1,5 @@
 """
-docking_analysis.figures
+affinity.figures
 ------------------------
 All matplotlib figure-generation functions for docking analysis.
 

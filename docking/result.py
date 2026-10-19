@@ -34,10 +34,31 @@ import json
 import numpy as np
 import pandas as pd
 from rdkit import Chem
+from rdkit.Geometry import Point3D
 import copy
 import zlib
 
-from docking.load_ligand import mol_result
+
+def mol_result(rdkit_mol, pdb_str, atmname_to_index):
+    """Copy of the ligand whose conformer 0 carries the coordinates of the ``UNK`` HETATM lines of
+    *pdb_str*; the original conformer 0 is appended as the last conformer.
+
+    Same semantics as ``docking.load_ligand.mol_result``, duplicated here so that reading the HDF5
+    files (and therefore the whole analysis) does not import PyRosetta. ``docking.load_ligand`` stays
+    unchanged because it is part of the docking engine that produced the data.
+    """
+    mol = copy.deepcopy(rdkit_mol)
+    conf = Chem.Conformer(mol.GetConformer(0))
+    mol.AddConformer(conf, mol.GetNumConformers())
+    for line in pdb_str.split('\n'):
+        if line[:6] == 'HETATM' and line[17:20] == 'UNK':
+            x = float(line[30:38])
+            y = float(line[38:46])
+            z = float(line[46:54])
+            name = line[12:16]
+            mol.GetConformer(0).SetAtomPosition(atmname_to_index[name], Point3D(x, y, z))
+    return mol
+
 
 def pdb_result( orig_pdb_str, update_pdb_strarr ):
     """

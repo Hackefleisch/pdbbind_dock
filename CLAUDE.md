@@ -10,14 +10,18 @@ ranking (success-rate tables) and trains a **linear reweighting model** that map
 the energy terms to binding affinity (log Kd). Benchmarks used: PDBbind v2020,
 the PoseBusters benchmark set, and the Astex Diverse set.
 
-Two distinct phases:
+Two distinct phases, and the analysis phase follows the three tracks of the paper
+(see [docs/PAPER1_STORY_INVENTORY.md](docs/PAPER1_STORY_INVENTORY.md)):
 
 1. **Docking** (compute-heavy, runs on an HPC/SLURM cluster) — `docking/`
    package; produces one HDF5 file per complex.
-2. **Analysis** (runs locally) — `docking_analysis/` package: extracts the HDF5
-   files into parquet tables, computes the benchmark success-rate tables, and (via
-   the `extract_docking_stats.py` entry point) trains the affinity reweighting
-   models and writes figures.
+2. **Analysis** (runs locally), one package per track:
+   - `docking_analysis/` — **Track 1, benchmark**: extraction of the HDF5 files into
+     parquet tables and the success-rate tables (sampling vs. ranking).
+   - `ranking/` — **Track 2, fix the ranking**: planned; energy-degeneracy analysis,
+     per-complex oracle, pose-ranking reweighting / LambdaRank.
+   - `affinity/` — **Track 3, affinity**: the legacy reweighting grid, kept as
+     documentation only (not runnable, to be rewritten).
 
 ## Repository layout
 
@@ -29,8 +33,15 @@ docking/                 Phase-1 docking engine (Python package)
   ligand_rmsd.py         symmetry-corrected in-place ligand RMSD (used by result.py)
   result.py              reader for the docking HDF5 files (Result / PDBRinterface)
   xml_protocols/         RosettaScripts protocols (docking_std.xml, docking_perturb.xml)
-docking_analysis/        Phase-2 analysis package (see "Analysis" below)
-extract_docking_stats.py Phase-2 entry point of the affinity grid (repo root — imports docking_analysis)
+docking_analysis/        Track 1 — extraction + benchmark tables (see "Analysis" below)
+  constants.py           ALL paths of the project; package data paths
+  extract.py             H5 -> parquet (data/docking_stats/<set>_full/)
+  benchmark.py           success-rate tables per receptor state x protocol
+  scfx_weights.json, failed_pdb_ids/, splits.csv   tracked package data
+ranking/                 Track 2 — planned (docstring only)
+affinity/                Track 3 — legacy reweighting grid, documentation only
+  constants.py           paths of its (deleted) inputs, Kd regex, zero-variance terms
+  data.py, experiment.py, reweighting.py, figures.py, clustering.py, extract_docking_stats.py
 scripts/                 run_*.slurm, filter_pdbbind.py, h5_size.py
 docs/                    methods-level documentation and the paper planning documents
 data/                    ALL inputs, docking outputs, caches, figures — git-ignored
@@ -41,12 +52,12 @@ parent — see "Data layout"). Code, scripts and docs are the only things at the
 root; the small tracked reference data (`scfx_weights.json`, `failed_pdb_ids/`,
 `splits.csv`) ships inside `docking_analysis/`.
 
-**Run entry points as modules from the repo root** so the `docking` package
-resolves, e.g. `uv run python -m docking.main --help`. The `docking_analysis` package
-and `extract_docking_stats.py` rely on being run from the repo root too
-(cwd = repo root puts both packages on `sys.path`). There are no notebooks in the
-repository; the former exploratory notebooks were folded into `scripts/filter_pdbbind.py`,
-`docking_analysis.extract` and `docking_analysis/failed_pdb_ids/`.
+**Run entry points as modules**, e.g. `uv run python -m docking.main --help`,
+`uv run python -m docking_analysis.extract --set pdbbind`. `uv sync` installs the four
+packages in editable mode (hatchling build backend, see `pyproject.toml`), so they resolve
+from any working directory; the SLURM scripts still `cd` into the repo. There are no
+notebooks in the repository; the former exploratory notebooks were folded into
+`scripts/filter_pdbbind.py`, `docking_analysis.extract` and `docking_analysis/failed_pdb_ids/`.
 
 ## Phase 1 — Docking
 
@@ -73,49 +84,52 @@ repository; the former exploratory notebooks were folded into `scripts/filter_pd
 
 ## Phase 2 — Analysis
 
-Two generations of code live here. **Current** (used for Paper 1): `extract.py` and
-`benchmark.py`, which work on the full-set parquet tables. **Legacy, to be rewritten**:
-the affinity reweighting grid (`data.py`, `experiment.py`, `reweighting.py`,
-`figures.py`, `clustering.py`, driven by `extract_docking_stats.py`). It was written
-against zip bundles (exact-Kd subset, uncorrected RMSDs, constraint-laden totals) that
-were deleted on 2026-10-19, so it cannot run; it stays as the reference for its term
-selections, aggregations and figures until it is rewritten on the full extraction.
+### Track 1 — `docking_analysis/` (current)
 
-- [extract_docking_stats.py](extract_docking_stats.py) — orchestrator of the affinity
-  grid: loads the filtered subset + Kd index, runs the experiment grid (aggregation ×
-  term selection), optional pose clustering, writes figures + result CSVs.
-  Run: `uv run extract_docking_stats.py [--n_workers N] [--rmsd_cutoff 2.0]`.
-- [docking_analysis/](docking_analysis/):
-  - `constants.py` — **all paths, regexes, unit conversions live here. Start here.**
-    Paths are computed as `REPO_ROOT / "data" / …` (via the `DATA_DIR` constant),
-    so the package must stay at the repo root and the data lives under `data/`.
-    `FAILED_PDB_IDS_DIR`, `SPLITS_PATH`, `SCFX_WEIGHTS_PATH` point at the package data below.
-  - `data.py` — load/filter dataframes, per-PDB aggregation (legacy zips).
-  - `clustering.py` — RMSD-based pose clustering (cached under `docking_stats/`);
-    lazily imports `docking.result.Result` to read the H5 files; plain (non-symmetric)
-    RMSD between poses.
-  - `experiment.py` — experiment configs (`DEFAULT_EXPERIMENTS`), results matrix.
-  - `reweighting.py` — PyTorch linear reweighting of `raw_delta_*` terms.
-  - `figures.py` — matplotlib figure generation (output → `figures/`).
-  - `scfx_weights.json` — default Rosetta score-function weights as dumped by the runner.
-  - `failed_pdb_ids/<set>.txt` — ids of the complexes whose docking failed or was removed
-    after the first run (pdbbind 74, posebuster 40, astex 1); derived from `data/failed_logs/`.
-  - `splits.csv` — PDBbind split annotations for 19,443 ids: `plindersplit`, `hacsplit`
-    (its `test` = the 290-id CASF-2016 core set, `val` = the 300-id CASF validation set),
-    `cleansplit`, `lppdbbindsplit`. Input for the leakage-aware split decision.
-  - `extract.py` — **full-set extraction**: every H5 file of a set → parquet tables
-    (`docked`, `seeds`, `complexes`, `manifest.json`) under `data/docking_stats/<set>_full/`,
-    read through `Result(autocorrect=True)`, so `total_score`, `rmsd_to_crystal` and
-    `rmsd_to_input` are corrected and the stored values sit next to them as `*_legacy`.
-    All complexes are included; filter on `complexes.complete`.
-    Run `uv run python -m docking_analysis.extract --set pdbbind` (`--no-autocorrect` for raw).
-  - `benchmark.py` — six success-rate tables, one per receptor state × protocol, with the
-    benchmark sets as rows, produced once per ranking score (interface delta and corrected
-    total score) and preceded by a column legend. Output: `data/figures/benchmark/`.
-    Run `uv run python -m docking_analysis.benchmark`.
+- `constants.py` — **all paths, package-data paths live here. Start here.** Paths are
+  computed as `REPO_ROOT / "data" / …` (via the `DATA_DIR` constant), so the package must
+  stay at the repo root and the data lives under `data/`. `FAILED_PDB_IDS_DIR`,
+  `SPLITS_PATH`, `SCFX_WEIGHTS_PATH` point at the package data; the other tracks import
+  their shared paths from here.
+- `extract.py` — **full-set extraction**: every H5 file of a set → parquet tables
+  (`docked`, `seeds`, `complexes`, `manifest.json`) under `data/docking_stats/<set>_full/`,
+  read through `Result(autocorrect=True)`, so `total_score`, `rmsd_to_crystal` and
+  `rmsd_to_input` are corrected and the stored values sit next to them as `*_legacy`.
+  All complexes are included; filter on `complexes.complete`.
+  Run `uv run python -m docking_analysis.extract --set pdbbind` (`--no-autocorrect` for raw).
+- `benchmark.py` — six success-rate tables, one per receptor state × protocol, with the
+  benchmark sets as rows, produced once per ranking score (interface delta and corrected
+  total score) and preceded by a column legend. Output: `data/figures/benchmark/`.
+  Run `uv run python -m docking_analysis.benchmark`.
+- `scfx_weights.json` — default Rosetta score-function weights as dumped by the runner.
+- `failed_pdb_ids/<set>.txt` — ids of the complexes whose docking failed or was removed
+  after the first run (pdbbind 74, posebuster 40, astex 1); derived from `data/failed_logs/`.
+- `splits.csv` — PDBbind split annotations for 19,443 ids: `plindersplit`, `hacsplit`
+  (its `test` = the 290-id CASF-2016 core set, `val` = the 300-id CASF validation set),
+  `cleansplit`, `lppdbbindsplit`. Input for the leakage-aware split decision.
+
+### Track 2 — `ranking/` (planned)
+
+Empty package whose docstring lists what it will hold (inventory S5, S6, Appendix A.1/A.2):
+energy-degeneracy analysis, per-complex oracle probe, pose-ranking reweighting and a
+LambdaRank-style head on the full extraction with a leakage-aware split.
+
+### Track 3 — `affinity/` (legacy, documentation only)
+
+The first implementation of the affinity track: `extract_docking_stats.py` drove a grid of
+per-complex aggregations × energy-term selections (`experiment.py`), trained a non-negative
+linear reweighting against log Kd (`reweighting.py`), clustered poses by RMSD
+(`clustering.py`) and drew the figures (`figures.py`); `data.py` read the zip bundles and
+parsed the Kd index; `constants.py` holds its paths, the Kd regex and the zero-variance
+terms. **It is not runnable**: its inputs (exact-Kd zip, cluster cache) were deleted on
+2026-10-19. The files stay unchanged as the record of what was done and of the limitations
+the rewrite must lift (inventory S7); the rewrite will work on the parquet tables.
+
 - [docking/result.py](docking/result.py) — `Result` / `PDBRinterface`: the H5
-  reader used by `clustering.py` and by the extraction. **Auto-corrects
+  reader used by the extraction (and by the legacy `affinity.clustering`). **Auto-corrects
   `total_score`, `rmsd_to_crystal`, `rmsd_to_input` by default** (see "Legacy semantics").
+  It does **not** import PyRosetta (it carries its own copy of `mol_result`), so the whole
+  analysis runs without PyRosetta.
 
 ## HDF5 schema (one file per complex, written by runner.py)
 
@@ -169,14 +183,20 @@ tracked reference data lives inside `docking_analysis/` (see "Phase 2").
 
 ## Environment
 
-- Python ≥ 3.11, managed with **uv** ([pyproject.toml](pyproject.toml), `uv.lock`).
-  PyRosetta 2025.47 (Rosetta commit `8bb54e8a6d`, GitHub tag `v2025.47-dev62202`) is
-  installed from a **vendored wheel** in `wheels/` (git-ignored): the JHU wheel archive keeps
-  only the latest ~8 releases and its TLS chain is incomplete, so the wheel (sha256 in
-  `pyproject.toml`; a copy is in `~/Downloads`) must be placed there once before `uv sync`.
-  The same build is served permanently as a conda package
-  (`conda install -c https://conda.graylab.jhu.edu pyrosetta=2025.47`), and the Rosetta
-  source at that tag can be built. Obtaining PyRosetta implies accepting its license.
+- Python ≥ 3.11, managed with **uv** ([pyproject.toml](pyproject.toml), `uv.lock`;
+  hatchling build backend, the four packages are installed editable by `uv sync`).
+- **PyRosetta is needed only by the docking engine** (Phase 1). It is the `docking`
+  dependency group: `uv sync --group docking`. Analysis-only environments without the
+  wheel file must use `uv sync --frozen` (a plain `uv sync` re-validates the lock and
+  fails when the path source is missing).
+  The build used for all docking runs is PyRosetta 2025.47 (Rosetta commit `8bb54e8a6d`,
+  GitHub tag `v2025.47-dev62202`), installed from a **vendored wheel** in `wheels/`
+  (git-ignored; sha256 in `pyproject.toml`; a copy is in `~/Downloads`). The JHU wheel
+  archive keeps only the latest ~8 weekly releases (2025.47 is gone) and sends an
+  incomplete TLS chain; the same build is served permanently as a conda package
+  (`conda install -c https://conda.graylab.jhu.edu pyrosetta=2025.47`). How third parties
+  obtain it is an open decision (see README). Obtaining PyRosetta implies accepting its
+  license.
 - Analysis extras: scikit-learn, umap-learn, seaborn, statsmodels, pyarrow.
 - Run anything with `uv run <script>` (or `.venv/bin/python`).
 - PyRosetta init flags used throughout:
@@ -193,9 +213,11 @@ tracked reference data lives inside `docking_analysis/` (see "Phase 2").
   constraint-free totals and symmetry-corrected in-place RMSDs, with the stored values kept as
   `*_legacy`. Do not "fix" `runner.py` or the XMLs for this: the data will not be re-docked.
 - **Analyses run on the full extraction** (`data/docking_stats/<set>_full/`). The older
-  partial zips and the cluster cache no longer exist; the affinity grid that read them
-  (`extract_docking_stats.py`, `docking_analysis/data.py`, `clustering.py`, …) is to be
-  rewritten on the parquet tables, not patched.
+  partial zips and the cluster cache no longer exist; the `affinity/` package that read
+  them is documentation only and is to be rewritten on the parquet tables, not patched.
+- **One package per track.** New Track 2 code goes to `ranking/`, the rewritten Track 3
+  to `affinity/` (replace, do not extend, the legacy modules); shared paths stay in
+  `docking_analysis/constants.py`.
 - Large data dirs and outputs are git-ignored (see [.gitignore](.gitignore)).
   **Do not commit `.h5`, parquet, large `.csv`, or figures.** Only code, docs and the
   small package data in `docking_analysis/` are tracked.

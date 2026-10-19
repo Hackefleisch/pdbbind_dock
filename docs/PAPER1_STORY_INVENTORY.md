@@ -90,8 +90,12 @@ for 19,443 PDBbind ids (input for the leakage-aware split decision, §4).
   keeps every release, so `pyrosetta=2025.47` can be installed from there permanently. `uv run` /
   `uv add` work again. Added: scikit-learn, umap-learn, seaborn, statsmodels, pyarrow.
 - `data/figures/benchmark/` holds the success tables of §1. No affinity figure exists: the legacy
-  affinity grid (`extract_docking_stats.py`) lost its inputs on 2026-10-19 and is to be rewritten on
-  the full extraction, so every T3 number is `[FROM REPO]`.
+  affinity grid (`affinity/`, driven by `affinity/extract_docking_stats.py`) lost its inputs on
+  2026-10-19, is kept as documentation only, and is to be rewritten on the full extraction, so every
+  T3 number is `[FROM REPO]`.
+- Code layout since 2026-10-19: one package per track — `docking_analysis/` (T1), `ranking/` (T2,
+  planned), `affinity/` (T3, legacy); the HDF5 reader no longer imports PyRosetta, so the analysis
+  tracks run without it.
 - `posebusters` 0.6.5 is a declared dependency (S4); scikit-learn and umap-learn are installed.
 - Links: docking pipeline `github.com/Hackefleisch/pdbbind_dock`; Luca's ML repo
   `github.com/lucafrb/rosettaligand-vs-posebuster` (§6.1); Overleaf draft
@@ -429,7 +433,7 @@ resists → baseline affinity correlation → outlook (Paper 2).*
   (`reweighting.py`). The thesis-era table (§3) is the last-known value and is not comparable
   to §1 (the native score's Top-1 is 72 %, the thesis's ML-head Top-1 was ≈ 50 %: different
   data and definitions `[VERIFY]`).
-- **To do (medium):** implement in `docking_analysis/`: (a) per-complex listwise or pairwise linear
+- **To do (medium):** implement in `ranking/`: (a) per-complex listwise or pairwise linear
   reweighting of the seven interface terms (the honest "can weights fix it" test); (b) a
   LambdaRank-style head and one tree model as references; (c) a leakage-aware split (time split by
   PDBbind year, or sequence clustering from the cleaned PDBs with mmseqs2 / CD-HIT, or an
@@ -458,7 +462,7 @@ resists → baseline affinity correlation → outlook (Paper 2).*
 
 - **Claim.** Weak baseline correlation (r ≈ 0.4) of the minimum interface delta with log Kd;
   best-pose reweighting adds a small gain.
-- **Can tell now:** nothing current. The legacy grid (`extract_docking_stats.py`: 3 aggregations × 4
+- **Can tell now:** nothing current. The legacy grid (`affinity/`: 3 aggregations × 4
   term selections + clustered aggregation; default vs learned weights) defined the experiment, but its
   inputs (exact-Kd zip, cluster cache for 3,579 complexes at 2 Å and 4 Å) were deleted on 2026-10-19
   and it is to be rewritten on the full extraction; Felipe's 0.39 / 0.38 / 0.42 (min / mean-of-10 /
@@ -581,7 +585,7 @@ the T2 "mild improvement" result, on the right data but with the wrong labels an
 
 Options:
 
-1. **Port (recommended).** A `docking_analysis/ranking/` subpackage: his data-loader logic
+1. **Port (recommended).** The `ranking/` package: his data-loader logic
    rewritten against `docked.parquet`, the `Reweight` and `Ranker` models, the InfoNCE/BCE loss,
    the Success@k evaluation and a CLI; ~500 lines, credited to Luca in the module docstring. His
    repo stays the reference for the thesis-era numbers.

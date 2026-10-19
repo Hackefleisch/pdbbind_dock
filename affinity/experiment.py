@@ -1,5 +1,5 @@
 """
-docking_analysis.experiment
+affinity.experiment
 ---------------------------
 Configuration dataclasses, presets, and results collection for the
 reweighting experiment grid.
@@ -39,7 +39,7 @@ class AggregationConfig:
         Human-readable label used in filenames and the results table
         (e.g. ``"min"``, ``"mean10"``).
     strategy : str
-        Key recognised by :func:`~docking_analysis.data.aggregate_per_pdb`
+        Key recognised by :func:`~affinity.data.aggregate_per_pdb`
         (``"min"``, ``"mean_n"``, ``"filtered_mean"``; more to come).
     params : dict
         Extra keyword arguments forwarded to the aggregation function,

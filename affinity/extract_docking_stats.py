@@ -1,7 +1,7 @@
 """
-extract_docking_stats.py
-------------------------
-Orchestrator script that ties together the ``docking_analysis`` package:
+affinity.extract_docking_stats  (LEGACY, documentation only — see ``affinity/__init__.py``)
+------------------------------
+Orchestrator script that tied together the ``affinity`` package:
 
 1. Loads the pre-filtered PDBbind docking data (relax+perturb subset)
    and Kd index.  On the first run the filtered zip is created
@@ -19,29 +19,29 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from docking_analysis.constants import (
+from affinity.constants import (
     CLUSTER_CACHE_DIR,
     H5_DIR,
     INDEX_PATH,
     OUTPUT_DIR,
 )
-from docking_analysis.data import (
+from affinity.data import (
     load_filtered_dataframe,
     load_kd_index,
 )
-from docking_analysis.experiment import (
+from affinity.experiment import (
     DEFAULT_EXPERIMENTS,
     ResultsMatrix,
     compute_baseline_metrics,
     get_clustered_experiments,
 )
-from docking_analysis.figures import (
+from affinity.figures import (
     plot_energy_distributions,
     plot_idelta_vs_logkd,
     plot_predicted_vs_actual,
     plot_weight_bar_chart,
 )
-from docking_analysis.reweighting import train_reweighting_model
+from affinity.reweighting import train_reweighting_model
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -82,7 +82,7 @@ def main(n_workers: int | None = None, rmsd_cutoff: float = 2.0):
 
     # --- clustering ----------------------------------------------------------
     if H5_DIR.is_dir():
-        from docking_analysis.clustering import (
+        from affinity.clustering import (
             cluster_all_pdbs,
             print_cluster_statistics,
         )

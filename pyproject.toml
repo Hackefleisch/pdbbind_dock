@@ -9,7 +9,6 @@ dependencies = [
     "matplotlib>=3.10.7",
     "posebusters>=0.6.0",
     "pyarrow>=22.0.0",
-    "pyrosetta",
     "rdkit>=2025.9.1",
     "scikit-learn>=1.9.1",
     "scipy>=1.16.3",
@@ -19,6 +18,12 @@ dependencies = [
     "tqdm>=4.67.1",
     "umap-learn>=0.5.12",
 ]
+
+# PyRosetta is needed only by the docking engine (Phase 1: docking/main.py, runner.py,
+# load_ligand.py). Reading the HDF5 files and every analysis track work without it.
+# Install it with:  uv sync --group docking
+[dependency-groups]
+docking = ["pyrosetta"]
 
 [tool.uv.sources]
 # PyRosetta 2025.47+release.8bb54e8a6d = Rosetta commit 8bb54e8a6d (GitHub tag v2025.47-dev62202).
@@ -31,3 +36,14 @@ dependencies = [
 #   conda install -c https://conda.graylab.jhu.edu pyrosetta=2025.47   (py311 build sha256 a24ad02e7a4bdc20...)
 # Obtaining PyRosetta implies accepting its license.
 pyrosetta = { path = "wheels/pyrosetta-2025.47+release.8bb54e8a6d-cp311-cp311-linux_x86_64.whl" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# The four code directories, installed as editable packages by `uv sync`, so the entry
+# points (`python -m docking.main`, `python -m docking_analysis.extract`, ...) resolve from
+# any working directory. Package data (scfx_weights.json, failed_pdb_ids/, splits.csv) is
+# included by hatchling automatically.
+[tool.hatch.build.targets.wheel]
+packages = ["docking", "docking_analysis", "ranking", "affinity"]

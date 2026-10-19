@@ -1,5 +1,5 @@
 """
-docking_analysis.reweighting
+affinity.reweighting
 ----------------------------
 PyTorch-based linear reweighting of raw_delta energy terms.
 
@@ -10,7 +10,7 @@ Learns per-energy-term weights  w_i  such that
 approximates  log₁₀(Kd)  for each PDB entry.
 
 This module is **pure ML** — it does not generate any figures.  Callers
-should use :mod:`docking_analysis.figures` to visualise the results.
+should use :mod:`affinity.figures` to visualise the results.
 """
 
 from pathlib import Path
@@ -98,7 +98,7 @@ def train_reweighting_model(
         Directory for the weights CSV.
     agg_kwargs : dict | None
         Extra keyword arguments forwarded to
-        :func:`~docking_analysis.data.aggregate_per_pdb` (e.g.
+        :func:`~affinity.data.aggregate_per_pdb` (e.g.
         ``{"cluster_map": ...}`` for the clustered strategy).
 
     Returns

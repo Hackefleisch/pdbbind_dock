@@ -1,5 +1,5 @@
 """
-docking_analysis.data
+affinity.data
 ---------------------
 Data loading, filtering, and per-PDB aggregation utilities.
 
@@ -373,7 +373,7 @@ def get_raw_delta_columns(df: pd.DataFrame) -> list[str]:
 
     Excludes:
     - Columns containing ``"???"`` (unknown terms)
-    - Columns in :data:`~docking_analysis.constants.ZERO_VARIANCE_TERMS`
+    - Columns in :data:`~affinity.constants.ZERO_VARIANCE_TERMS`
     """
     return [
         c for c in df.columns
