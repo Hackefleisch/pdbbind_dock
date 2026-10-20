@@ -29,3 +29,4 @@ H5_DIRS             = {                      # one directory of <pdb>.h5 files p
     "astex":      DATA_DIR / "astex_h5",
 }
 EXTRACT_DIR         = DATA_DIR / "docking_stats"   # full extractions live in <EXTRACT_DIR>/<set>_full/
+RANKING_DIR         = DATA_DIR / "ranking"         # Track 2 runs: <RANKING_DIR>/<run>/ (models, per-run tables, results)

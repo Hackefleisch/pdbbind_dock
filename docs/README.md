@@ -9,6 +9,9 @@ file(s) it documents.
 - [dataset_preparation.md](dataset_preparation.md) — how `pdbbind_cleaned` is
   filtered and built from the raw PDBbind v2020 download
   (source: [`scripts/filter_pdbbind.py`](../scripts/filter_pdbbind.py)).
+- [ranking.md](ranking.md) — Track 2: the pose-ranking models ported from Luca Friebe's
+  repository (data, labels, split, models, loss, evaluation), what changed in the port, and
+  their results on the full extraction (source: [`ranking/`](../ranking/)).
 
 ## Paper 1 (characterisation of RosettaLigand)
 

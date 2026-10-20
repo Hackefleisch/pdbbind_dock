@@ -18,8 +18,9 @@ Two distinct phases, and the analysis phase follows the three tracks of the pape
 2. **Analysis** (runs locally), one package per track:
    - `docking_analysis/` — **Track 1, benchmark**: extraction of the HDF5 files into
      parquet tables and the success-rate tables (sampling vs. ranking).
-   - `ranking/` — **Track 2, fix the ranking**: planned; energy-degeneracy analysis,
-     per-complex oracle, pose-ranking reweighting / LambdaRank.
+   - `ranking/` — **Track 2, fix the ranking**: the pose-ranking models (linear reweighting
+     and an MLP ranker, ported from Luca Friebe's repository) with the Success@k evaluation;
+     the energy-degeneracy analysis and the per-complex oracle are still planned.
    - `affinity/` — **Track 3, affinity**: the legacy reweighting grid, kept as
      documentation only (not runnable, to be rewritten).
 
@@ -38,7 +39,11 @@ docking_analysis/        Track 1 — extraction + benchmark tables (see "Analysi
   extract.py             H5 -> parquet (data/docking_stats/<set>_full/)
   benchmark.py           success-rate tables per receptor state x protocol
   scfx_weights.json, failed_pdb_ids/, splits.csv   tracked package data
-ranking/                 Track 2 — planned (docstring only)
+ranking/                 Track 2 — pose-ranking models (port of Luca's reweighting / ranker)
+  data.py                pose tables from docked.parquet: features, hit labels, runs, PDBbind split
+  models.py              Reweight (linear) and Ranker (MLP), BCE + InfoNCE loss, training loop
+  evaluate.py            Success@k (as benchmark.py), bootstrap CIs, paired deltas, AUCs
+  train.py, report.py    CLIs: one run -> data/ranking/<run>/; comparison tables -> data/figures/ranking/
 affinity/                Track 3 — legacy reweighting grid, documentation only
   constants.py           paths of its (deleted) inputs, Kd regex, zero-variance terms
   data.py, experiment.py, reweighting.py, figures.py, clustering.py, extract_docking_stats.py
@@ -108,11 +113,42 @@ notebooks in the repository; the former exploratory notebooks were folded into
   (its `test` = the 290-id CASF-2016 core set, `val` = the 300-id CASF validation set),
   `cleansplit`, `lppdbbindsplit`. Input for the leakage-aware split decision.
 
-### Track 2 — `ranking/` (planned)
+### Track 2 — `ranking/` (pose-ranking models: S5 implemented, S6 planned)
 
-Empty package whose docstring lists what it will hold (inventory S5, S6, Appendix A.1/A.2):
-energy-degeneracy analysis, per-complex oracle probe, pose-ranking reweighting and a
-LambdaRank-style head on the full extraction with a leakage-aware split.
+Port of Luca Friebe's `rosettaligand-vs-posebuster` (branch `test_new_architecture`) onto the
+full extraction, with the fixes listed in the inventory §6.1 (labels, features, split, Astex
+overlap). Credited in the package docstring; his repository stays the reference for the
+thesis-era numbers. Methods and results: [docs/ranking.md](docs/ranking.md).
+
+- `data.py` — `load_poses(set, protocols, feature_cols)` reads one or more protocols of
+  `docked.parquet` (complete complexes only, sorted so that every docking run = 300 poses is a
+  contiguous block). Features: `delta` (default) = the seven non-zero interface terms
+  `raw_delta_{fa_atr, fa_rep, fa_sol, fa_elec, fa_pair, hbond_bb_sc, hbond_sc}` — Luca's 25
+  requested terms reduce to exactly these once the all-zero ones are dropped; `total` = the 20
+  constraint-free `raw_*` terms; `both`. Luca's preprocessing is kept (delta `fa_rep` capped at
+  50, robust scaling, scaled values clipped to ±10) but the scaler is fitted on the training poses
+  only (`RobustScale`, stored as JSON). Hit = `rmsd_to_crystal` ≤ 2 Å (symmetry-corrected).
+  `assign_split` maps the PDBbind complexes to train/val/test: `lppdbbind` (default, LP-PDBBind
+  from `splits.csv`), `hac` (CASF-2016 core as test), `cleansplit`, `random` (Luca's
+  StratifiedGroupKFold, fold 0 = val = "test"). `train.py` removes PDBbind complexes whose PDB
+  entry is an Astex complex from train/val (43 of the 84 Astex entries are in the PDBbind set, no
+  PoseBusters entry is).
+- `models.py` — `Reweight` (bias-free linear; `--init rosetta` starts it at the Rosetta weights,
+  i.e. at the interface-delta ranking) and `Ranker` (64-32-16-1 MLP); `BCEPlusInfoNCE` (Luca's
+  loss, τ = 0.5, β = 1); `fit`: Adam, one docking run per batch, best epoch by validation
+  Success@1 then Success@5 (the untrained model counts as epoch 0 and can be selected).
+- `evaluate.py` — `per_group_success` uses the benchmark's definition (stable sort by score,
+  Success@k ⇔ rank of the first hit < k); percentile-bootstrap CIs over runs, paired differences
+  to `idelta_score` on the same runs, pooled AUC and mean per-run AUC (the pooled AUC of
+  `total_score` is meaningless, totals are not comparable across complexes).
+- `train.py` — one run: `uv run python -m ranking.train --model {reweight,ranker}
+  [--protocol relax_docking_perturb] [--features delta] [--split lppdbbind] [--init rosetta]
+  [--eval-protocols ...]`; outputs under `data/ranking/<run>/` (`results.md/json`,
+  `per_run.parquet`, `model.pt`, `scaler.json`, `history.csv`, `weights.csv`). It prints a
+  sanity line with the full-set baseline Success@k, which must equal the benchmark tables.
+  Luca's original setup: `--split random --rmsd-col rmsd_to_input_legacy --no-exclude-overlap`.
+- `report.py` — `uv run python -m ranking.report` collects all runs into
+  `data/figures/ranking/ranking_tables.md` + `ranking_results.csv`.
 
 ### Track 3 — `affinity/` (legacy, documentation only)
 
@@ -173,8 +209,9 @@ SLURM scripts expect the same names under `$WORKSPACE/data/`.
 | `pdbbind_h5/` | **374 G** | Docking output, 11 460 `.h5` files. |
 | `posebuster_h5/` `astex_h5/` | 14 G / 3.2 G | Docking output for the other two sets. |
 | `docking_stats/<set>_full/` | 3.2 G | **Full-set parquet tables** from `docking_analysis.extract` — the data the analyses must use. |
+| `ranking/<run>/` | small | Track 2 runs written by `ranking.train`: model, scaler, per-run tables, `results.json/.md`, `train.log`. |
 | `failed_logs/` | 472 K | SLURM `.out`/`.err` of the 57 docking tasks that failed on the cluster; source of `docking_analysis/failed_pdb_ids/`. |
-| `figures/` | — | Generated figures and benchmark tables (regenerated; safe to clear). |
+| `figures/` | — | Generated figures and tables: `benchmark/` (Track 1), `ranking/` (Track 2 report); regenerated, safe to clear. |
 | `h5_test/` | — | Output of the local smoke test (`python -m docking.runner`); absent unless it was run. |
 
 The legacy zip bundles, the cluster cache and the Nov-2025 summary CSV were deleted on

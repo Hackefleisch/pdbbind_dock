@@ -428,17 +428,32 @@ resists → baseline affinity correlation → outlook (Paper 2).*
 
 - **Claim.** Linear reweighting and RF / GBR / MLP / LambdaRank heads gain ≤ 1–2 points over the
   native score.
-- **Can tell now:** nothing from this repo. The pose-ranking heads live in Luca's repo and were
-  trained on the 150-pose, pre-fix data; the only learner here is the *affinity* reweighting
-  (`reweighting.py`). The thesis-era table (§3) is the last-known value and is not comparable
-  to §1 (the native score's Top-1 is 72 %, the thesis's ML-head Top-1 was ≈ 50 %: different
-  data and definitions `[VERIFY]`).
-- **To do (medium):** implement in `ranking/`: (a) per-complex listwise or pairwise linear
-  reweighting of the seven interface terms (the honest "can weights fix it" test); (b) a
-  LambdaRank-style head and one tree model as references; (c) a leakage-aware split (time split by
-  PDBbind year, or sequence clustering from the cleaned PDBs with mmseqs2 / CD-HIT, or an
-  established LP-PDBBind split `[VERIFY]`); evaluate Top-1/Top-5 on PDBbind test + Astex +
-  PoseBusters. Decide whether the thesis numbers appear at all.
+- **Can tell now (port of 2026-10-19, `ranking/`, see [ranking.md](ranking.md)):** Luca's
+  linear reweighting and MLP ranker (InfoNCE + BCE loss) run on the full extraction with
+  corrected labels (symmetry-corrected `rmsd_to_crystal` ≤ 2 Å), the seven interface terms, the
+  LP-PDBBind split and the 43 Astex entries removed from the PDBbind training set; evaluated with
+  bootstrap intervals and paired differences to the interface delta on the same runs, for
+  `relax` · `perturb` and `apo_relax` · `perturb`. His original setup (stored `rmsd_to_input`
+  labels, random split by complex, all of PDBbind in training) is reproduced as a validation of
+  the port (`--split random --rmsd-col rmsd_to_input_legacy --no-exclude-overlap`); its Rosetta
+  baseline matches his description exactly, and his reweighter / ranker numbers are reproduced
+  within one complex (ranker on PoseBusters 74.7 / 85.3 vs. his 74.74 / 85.31). **Headline
+  numbers** (Success@1, Δ to the interface delta [95 % CI]; LP-PDBBind test n = 3,572 /
+  PoseBusters 388 / Astex 84; [ranking.md](ranking.md) §7): `relax` · `perturb` — reweighting
+  +0.4 [−0.5, +1.3] / +2.3 [+0.3, +4.4] / −1.2, ranker +0.6 [−0.3, +1.5] / +2.8 [+0.8, +4.9] /
+  −2.4; `apo_relax` · `perturb` — reweighting +0.1 [−0.9, +1.2] / +0.5 / +3.6, ranker +1.1
+  [+0.1, +2.0] / +0.0 / +2.4. In Luca's own setup the gains were larger (+2.4 to +2.8 on his
+  random PDBbind fold, +3.9 to +4.1 on PoseBusters). The difference is the **split, not the
+  labels**: with corrected labels on the same random split both heads still gain +2.4
+  [+1.2, +3.5] on the held-out fold, versus +0.4 to +0.6 on the LP-PDBBind test proteins — what
+  the heads learn beyond the Rosetta weights is protein-specific and does not transfer. Total-energy features are worse than the seven interface terms (−1.0); the learned
+  weight vectors are nearly identical across runs (the linear optimum is flat — the
+  reweighting-side view of S6). The thesis-era table (§3) stays non-comparable (150 poses,
+  uncorrected RMSD).
+- **To do (small/medium):** (a) a tree model as a second reference head (S5 b); (b) confirm the
+  split decision (§4 item 3 — the port defaults to LP-PDBBind and also offers `hac` = CASF-2016
+  core as test, `cleansplit`, and Luca's random split); (c) decide whether the thesis numbers
+  appear at all; (d) optional: `--features total` / `both` as the robustness check of A.1.
 
 #### S6 — Why ranking resists repair: energy degeneracy (Appendix A.1) and per-complex oracle (A.2)
 
@@ -535,7 +550,9 @@ quotes them by accident; every one of them is superseded by §1 or must be recom
 2. Whether to launch Appendix B run **A** (random starts, no crystal conformer): the head-on
    comparison with DL and classical docking (S1), and the abstract draft's "often beating" sentence,
    depend on it.
-3. Leakage-aware split definition (shared by S5 and S7).
+3. Leakage-aware split definition (shared by S5 and S7). The ranking port (2026-10-19) defaults
+   to LP-PDBBind and supports `hac` (CASF-2016 core as test), `cleansplit` and the random split;
+   the Astex entries that are PDBbind complexes (43 of 84) are excluded from training in any case.
 4. Paper 1 / Paper 2 boundary for Appendix A.3 step 2.
 5. Labels for T3: Kd + Ki headline, IC50 separate.
 6. Symmetry-corrected RMSD: done (auto-corrected on access, stored values kept as legacy).
@@ -548,7 +565,9 @@ quotes them by accident; every one of them is superseded by §1 or must be recom
 2. Appendix A.1 + A.2 (S6) on Perturb poses.
 3. PoseBusters validity on Top-1 / best poses (S4).
 4. Rewrite the affinity grid on the full extraction; Ki extension; bootstrap CIs (S7).
-5. Pose-ranking reweighting + LambdaRank with the agreed split (S5).
+5. *Done (port, 2026-10-19):* pose-ranking reweighting + ranker on the full extraction with the
+   LP-PDBBind split (S5, `ranking/`, [ranking.md](ranking.md)). *Open:* the tree reference head,
+   the final split decision.
 6. Josephine's re-plots + dataset-wide proxies (S3).
 7. Decide on Appendix B run A.
 
@@ -561,6 +580,19 @@ quotes them by accident; every one of them is superseded by §1 or must be recom
 > and the inventory are kept so that decision can be made quickly.
 
 ### 6.1 Luca's ML repository (`lucafrb/rosettaligand-vs-posebuster`, branch `test_new_architecture`)
+
+> **Ported 2026-10-19 (option 1 below):** `ranking/` holds the port (`data.py`, `models.py`,
+> `evaluate.py`, `train.py`, `report.py`), documented with the results in
+> [ranking.md](ranking.md). Facts established during the port: (i) his 25 requested features are
+> the **interface-delta** terms (`raw_delta_*`), which reduce to the seven non-zero ones — his
+> saved models have 7 inputs — so the constraint-term concern below is moot for his feature set;
+> (ii) his labels are the stored, uncorrected `rmsd_to_input`; (iii) his "PDBbind" numbers are the
+> validation fold of a random `StratifiedGroupKFold` by complex; (iv) all of PDBbind was used for
+> training although **43 of the 84 Astex entries are PDBbind complexes**; (v) the checked-in
+> `datasets/astex_test_set.pkl` is stale (72 complexes × 150 poses, thesis-era data) while his
+> reported numbers are on the 300-pose data (84 Astex / 388 PoseBusters complexes); (vi) the
+> port with `--rmsd-col rmsd_to_input_legacy` reproduces his Rosetta baseline exactly
+> (PoseBusters Success@1/5 = 70.9 / 83.2 vs. his 70.88 / 83.25).
 
 Inspected 2026-10-15 (~2 k lines). Four self-contained pipelines — `classification/`,
 `regression/`, `ranking/` (fully connected 25→64→32→16→1 net trained with an InfoNCE + BCE loss,
@@ -585,7 +617,7 @@ the T2 "mild improvement" result, on the right data but with the wrong labels an
 
 Options:
 
-1. **Port (recommended).** The `ranking/` package: his data-loader logic
+1. **Port — done 2026-10-19.** The `ranking/` package: his data-loader logic
    rewritten against `docked.parquet`, the `Reweight` and `Ranker` models, the InfoNCE/BCE loss,
    the Success@k evaluation and a CLI; ~500 lines, credited to Luca in the module docstring. His
    repo stays the reference for the thesis-era numbers.
@@ -716,7 +748,7 @@ set. That is the sentence the discussion needs.
 
 Report: distribution of oracle AUC over complexes; its correlation with the A.1 degeneracy
 fraction; and the gap between oracle AUC and the AUC actually achieved by the global reweighting
-and the LambdaRank head.
+and the ranker head of `ranking/`.
 
 ### A.3 Affinity track — from best-pose reweighting to a sampled-density free energy (T3, S7)
 
