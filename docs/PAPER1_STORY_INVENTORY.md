@@ -426,34 +426,31 @@ resists → baseline affinity correlation → outlook (Paper 2).*
 
 #### S5 — Reweighting and learned heads only mildly improve ranking (T2)
 
-- **Claim.** Linear reweighting and RF / GBR / MLP / LambdaRank heads gain ≤ 1–2 points over the
-  native score.
-- **Can tell now (port of 2026-10-19, `ranking/`, see [ranking.md](ranking.md)):** Luca's
-  linear reweighting and MLP ranker (InfoNCE + BCE loss) run on the full extraction with
-  corrected labels (symmetry-corrected `rmsd_to_crystal` ≤ 2 Å), the seven interface terms, the
-  LP-PDBBind split and the 43 Astex entries removed from the PDBbind training set; evaluated with
-  bootstrap intervals and paired differences to the interface delta on the same runs, for
-  `relax` · `perturb` and `apo_relax` · `perturb`. His original setup (stored `rmsd_to_input`
-  labels, random split by complex, all of PDBbind in training) is reproduced as a validation of
-  the port (`--split random --rmsd-col rmsd_to_input_legacy --no-exclude-overlap`); its Rosetta
-  baseline matches his description exactly, and his reweighter / ranker numbers are reproduced
-  within one complex (ranker on PoseBusters 74.7 / 85.3 vs. his 74.74 / 85.31). **Headline
-  numbers** (Success@1, Δ to the interface delta [95 % CI]; LP-PDBBind test n = 3,572 /
-  PoseBusters 388 / Astex 84; [ranking.md](ranking.md) §7): `relax` · `perturb` — reweighting
-  +0.4 [−0.5, +1.3] / +2.3 [+0.3, +4.4] / −1.2, ranker +0.6 [−0.3, +1.5] / +2.8 [+0.8, +4.9] /
-  −2.4; `apo_relax` · `perturb` — reweighting +0.1 [−0.9, +1.2] / +0.5 / +3.6, ranker +1.1
-  [+0.1, +2.0] / +0.0 / +2.4. In Luca's own setup the gains were larger (+2.4 to +2.8 on his
-  random PDBbind fold, +3.9 to +4.1 on PoseBusters). The difference is the **split, not the
-  labels**: with corrected labels on the same random split both heads still gain +2.4
-  [+1.2, +3.5] on the held-out fold, versus +0.4 to +0.6 on the LP-PDBBind test proteins — what
-  the heads learn beyond the Rosetta weights is protein-specific and does not transfer. Total-energy features are worse than the seven interface terms (−1.0); the learned
-  weight vectors are nearly identical across runs (the linear optimum is flat — the
-  reweighting-side view of S6). The thesis-era table (§3) stays non-comparable (150 poses,
-  uncorrected RMSD).
-- **To do (small/medium):** (a) a tree model as a second reference head (S5 b); (b) confirm the
-  split decision (§4 item 3 — the port defaults to LP-PDBBind and also offers `hac` = CASF-2016
-  core as test, `cleansplit`, and Luca's random split); (c) decide whether the thesis numbers
-  appear at all; (d) optional: `--features total` / `both` as the robustness check of A.1.
+- **Claim.** A non-negative reweighting of the seven interface terms, a LambdaRank tree and an MLP
+  ranker gain at most a few points over the unmodified interface delta.
+- **Can tell now (`ranking/`, [ranking.md](ranking.md)):** the port of Luca's models (2026-10-19)
+  reproduced the numbers of his repository within one complex, which validated the pipeline; on
+  corrected labels and a leakage-aware split his +2–4 points shrank to about +1 point — the gain
+  on a random split by complex is protein-specific and does not transfer. The decided setup below
+  replaces that first pass; its numbers are in [ranking.md](ranking.md) §7.
+- **Setup decided 2026-10-20** (implemented in `ranking/`, see [ranking.md](ranking.md)): the
+  seven raw interface terms only; training pool relax · perturb + apo_relax · perturb with one
+  bucket per complex × receptor state; headline = Δ to the unmodified interface delta on
+  apo_relax · perturb; all three non-random splits (LP-PDBBind, HAC, CleanSplit); four
+  approaches — non-negative reweighting of the raw terms from a random and from the Rosetta
+  start (the physics baseline, its weights are a Rosetta weight set), a LightGBM LambdaRank
+  tree, Luca's MLP ranker; tables with one row per approach and one column per k. Thesis-era
+  numbers are dropped. **Numbers** (Δ Success@1 / @5 / @10 to the unmodified interface delta on
+  apo_relax · perturb, LP-PDBBind test complexes n = 3,572; [ranking.md](ranking.md) §7): tree
+  +0.4 / −0.4 / +0.1; reweighted (random start) +1.5 / +1.3 / +0.8; reweighted (Rosetta start)
+  +1.5 / +1.1 / +0.9; ranker +0.8 / +1.2 / +0.9. The reweighting is the only approach whose Δ@1
+  interval excludes zero ([+0.6, +2.4]), and only on this split; on HAC and CleanSplit (271 / 151
+  test complexes) every interval includes zero, and on relax · perturb nothing moves. Both starts
+  of the non-negative reweighting converge to the same weight set (fa_rep 0.5, fa_sol 0.35,
+  fa_elec 0.35, fa_pair 0, hbond_bb_sc 1.3, hbond_sc 1.0 with fa_atr = 0.8). **The ranking is
+  not repaired by reweighting, a tree, or an MLP on the seven interface terms; the best gain is
+  about 1.5 points** — the S6 analyses (A.1 / A.2) are the explanation to deliver.
+- **To do:** none for the models; the S6 analyses explain the result.
 
 #### S6 — Why ranking resists repair: energy degeneracy (Appendix A.1) and per-complex oracle (A.2)
 
@@ -522,11 +519,9 @@ quotes them by accident; every one of them is superseded by §1 or must be recom
   80.7) is superseded by §1; any-pose Perturb rates are now 88–99 % with 300 samples, and the
   Standard rates are positive controls, not benchmark results. Establish what the thesis numbers
   measured before quoting them `[VERIFY]`.
-- Thesis ML-head table on PDBbind (Top-1 / Top-5): Random Forest 51.5 / 63.1, Gradient Boosting
-  50.4 / 63.9, MLP regression 49.6 / 62.0, MLP classification 49.9 / 62.5, LambdaRank-style pairwise
-  52.3 / 66.1, AllRank LambdaRank 36.6 / 49.0, NeuralNDCG 38.3 / 51.8, linear reweight 51.2 / 65.8.
-  Measured on different data with different definitions than §1 (native score Top-1 ≈ 72 %); the two
-  must not be mixed. Luca's rerun on the 300-pose data is in §6.1.
+- Thesis ML-head numbers (Top-1 / Top-5 of RF, GBR, MLP, LambdaRank variants, linear reweight on
+  the 150-pose data): dropped on 2026-10-20 — not comparable and not needed; the ranking
+  question is answered by `ranking/` on the full extraction ([ranking.md](ranking.md)).
 - Thesis PB-validity ranking (RMSD-only: first among PoseBusters-reported methods; RMSD ≤ 2 Å and
   PB-valid: third behind Vina and Gold; failure modes dominated by kekulisation and
   `minimum_distance_to_protein`) predates the RDKit/kekulé fix and must be recomputed (S4).
@@ -550,9 +545,10 @@ quotes them by accident; every one of them is superseded by §1 or must be recom
 2. Whether to launch Appendix B run **A** (random starts, no crystal conformer): the head-on
    comparison with DL and classical docking (S1), and the abstract draft's "often beating" sentence,
    depend on it.
-3. Leakage-aware split definition (shared by S5 and S7). The ranking port (2026-10-19) defaults
-   to LP-PDBBind and supports `hac` (CASF-2016 core as test), `cleansplit` and the random split;
-   the Astex entries that are PDBbind complexes (43 of 84) are excluded from training in any case.
+3. Leakage-aware split definition (shared by S5 and S7). **Decided for S5 on 2026-10-20:** all three
+   non-random splits of `splits.csv` are reported (LP-PDBBind, HAC = CASF-2016 core as test,
+   CleanSplit); the Astex entries that are PDBbind complexes (43 of 84) are excluded from training in
+   every split. Open for S7.
 4. Paper 1 / Paper 2 boundary for Appendix A.3 step 2.
 5. Labels for T3: Kd + Ki headline, IC50 separate.
 6. Symmetry-corrected RMSD: done (auto-corrected on access, stored values kept as legacy).
@@ -565,9 +561,8 @@ quotes them by accident; every one of them is superseded by §1 or must be recom
 2. Appendix A.1 + A.2 (S6) on Perturb poses.
 3. PoseBusters validity on Top-1 / best poses (S4).
 4. Rewrite the affinity grid on the full extraction; Ki extension; bootstrap CIs (S7).
-5. *Done (port, 2026-10-19):* pose-ranking reweighting + ranker on the full extraction with the
-   LP-PDBBind split (S5, `ranking/`, [ranking.md](ranking.md)). *Open:* the tree reference head,
-   the final split decision.
+5. *Done (2026-10-20):* the four ranking approaches on the decided setup (S5, `ranking/`,
+   [ranking.md](ranking.md)).
 6. Josephine's re-plots + dataset-wide proxies (S3).
 7. Decide on Appendix B run A.
 

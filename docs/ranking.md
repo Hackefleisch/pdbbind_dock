@@ -1,250 +1,217 @@
-# Track 2 — pose-ranking models (`ranking/`)
+# Track 2 — pose ranking: approaches vs. the unmodified interface delta (`ranking/`)
 
-> Methods-level documentation of the `ranking` package: the pose-ranking models of Luca
-> Friebe's thesis repository ported to the full extraction, what the port changes, how runs
-> are evaluated, and the results. Source files: [`ranking/data.py`](../ranking/data.py),
-> [`ranking/models.py`](../ranking/models.py), [`ranking/evaluate.py`](../ranking/evaluate.py),
-> [`ranking/train.py`](../ranking/train.py), [`ranking/report.py`](../ranking/report.py).
-> Paper context: [PAPER1_STORY_INVENTORY.md](PAPER1_STORY_INVENTORY.md), story S5 and §6.1.
-> Written 2026-10-19.
+> Methods-level documentation of the `ranking` package: the question, the fixed setup, the
+> four approaches, the evaluation and the results. Source files:
+> [`ranking/data.py`](../ranking/data.py), [`ranking/models.py`](../ranking/models.py),
+> [`ranking/evaluate.py`](../ranking/evaluate.py), [`ranking/train.py`](../ranking/train.py),
+> [`ranking/report.py`](../ranking/report.py). Paper context:
+> [PAPER1_STORY_INVENTORY.md](PAPER1_STORY_INVENTORY.md), story S5 and §6.1.
+> Written 2026-10-19 (port of Luca Friebe's models), revised 2026-10-20 to the decided setup.
 
-## 1. Origin and credit
+## 1. Question and setup
 
-The models come from Luca Friebe's repository
-[`lucafrb/rosettaligand-vs-posebuster`](https://github.com/lucafrb/rosettaligand-vs-posebuster).
-Its `main` branch is the thesis-era code on the old docking results (150 poses per protocol);
-the branch **`test_new_architecture`** (last commit `ecce837`, "reweighter and added prints")
-applies the pipelines to the current 300-pose docking: the numbers in its
-`ML_pipeline_description.md` are on 388 PoseBusters and 84 Astex complexes, and its Rosetta
-baseline is reproduced exactly by this port with the stored labels (§7.1). The branch holds
-four self-contained pipelines:
+**Can RosettaLigand's pose ranking be repaired, and by how much?** The reference is the
+*unmodified* Rosetta interface delta (`idelta_score`, the weighted sum of the interface energy
+terms with the default weights). Everything else is reported as the paired difference to it.
+The setup was fixed on 2026-10-20:
 
-| Pipeline | Content | Ported |
-|---|---|---|
-| `classification/` | tinygrad MLP, good/bad pose (BCE) | no — judged "inappropriate" in his description |
-| `regression/` | tinygrad MLP, predicts the RMSD (MSE/Huber) | no — same |
-| `ranking/` | `data_loader.py` + `ranking.py`: fully connected net `n → 64 → 32 → 16 → 1`, InfoNCE + BCE loss, one complex per batch, best epoch by Success@1/5; `test_ranking.py` | **yes** (`Ranker`) |
-| `reweighting/` | `reweight.py`: bias-free `nn.Linear(n, 1)` on the same features and loss; `test_reweighting.py` | **yes** (`Reweight`) |
+| Element | Decision |
+|---|---|
+| Features | the **seven non-zero raw interface-delta terms** `raw_delta_{fa_atr, fa_rep, fa_sol, fa_elec, fa_pair, hbond_bb_sc, hbond_sc}` and nothing else; `idelta_score` is their weighted sum (verified to 1e-4 on the extraction) |
+| Label | hit ⇔ symmetry-corrected `rmsd_to_crystal` ≤ 2 Å |
+| Training pool | the `relax` · `perturb` and `apo_relax` · `perturb` runs of the PDBbind training complexes. Not the crystal state (its structures are not relaxed; they may carry signals that are not about ranking) and not the std runs (they only add near-identical positives) |
+| Training bucket | one bucket per **complex × receptor state**: all poses docked from the same starting structure. With the default pool that is one perturb run (300 poses); if the std protocol is pooled in (`--protocol … relax_docking_std`) it joins the perturb run of the same state (600 poses). relax and apo_relax buckets of a complex stay separate. Poses are never compared across complexes |
+| Headline | the Δ Success@k to the unmodified ranking on **`apo_relax` · `perturb`**; `relax` · `perturb` is reported as well |
+| Splits | all three non-random PDBbind splits of `docking_analysis/splits.csv`: **LP-PDBBind** (train / val / test), **HAC** (test = CASF-2016 core, val = CASF validation set), **CleanSplit** (10 % of train held out as val). The 43 Astex entries that are PDBbind complexes are removed from train and val in every split |
+| Approaches | `unmodified` · `tree` · `reweighted` (random start) · `reweighted` (Rosetta start; all weights free, non-negative) · `ranker` — §4 |
+| Tables | one row per approach, one column per k ∈ {1, 5, 10}, cells = Δ Success@k [95 % CI]; one table per split for the PDBbind test complexes, one per external set (PoseBusters, Astex) |
 
-His reported results (`ML_pipeline_description.md`, Success@1 / Success@5 in %, relax · perturb
-poses, labels = stored `rmsd_to_input` ≤ 2 Å, random split by complex, PDBbind = validation fold):
+Thesis-era numbers and the random split by complex are no longer used anywhere.
 
-| | PoseBusters | Astex | PDBbind |
-|---|---|---|---|
-| Rosetta score | 70.88 / 83.25 | 84.52 / 94.05 | 71.08 / 84.41 |
-| Reweighter | 74.48 / 86.60 | 84.52 / 94.05 | 73.29 / 84.96 |
-| Ranker | 74.74 / 85.31 | 86.90 / 94.05 | 73.39 / 85.34 |
+## 2. Origin and credit
 
-The port (≈ 1,000 lines in `ranking/`, half of it docstrings and CLI) covers the two models, the loss, the data preprocessing,
-the model selection and the Success@k evaluation, rewritten against `docked.parquet`. Luca is
-credited in the package and module docstrings; his repository remains the reference for the
-thesis-era numbers (inventory §3).
+The MLP ranker, its loss and its feature preprocessing come from Luca Friebe's repository
+[`lucafrb/rosettaligand-vs-posebuster`](https://github.com/lucafrb/rosettaligand-vs-posebuster),
+branch `test_new_architecture` (`ranking/data_loader.py`, `ranking/ranking.py`,
+`reweighting/reweight.py`, the latter a bias-free `nn.Linear` on the same scaled features
+trained with the same loss). His classification and regression pipelines were not ported (he
+judged them inappropriate for the task). The port was validated on 2026-10-19 before the setup
+was changed: with his labels, split and training set it reproduced the numbers of his
+`ML_pipeline_description.md` within one complex on PoseBusters and Astex (git history of this
+page). What is still his in the current code: the `Ranker` architecture and the
+`BCEPlusInfoNCE` loss (both unchanged), the robust scaling with the `fa_rep` cap and the ±10
+clip (now fitted on the training poses only), the model-selection rule (best validation
+Success@1, ties by Success@5).
 
-## 2. What the port keeps and what it changes
-
-| Aspect | Luca's branch `test_new_architecture` | Port (`ranking/`) |
-|---|---|---|
-| Data | `datasets/*.pkl`: pandas frames built from the H5 files, one protocol (`docking_perturb_pose_relax` = `relax` · `perturb`), columns `pdb_id, protocol, run_id, rmsd_to_input` + 25 energy terms | `data/docking_stats/<set>_full/docked.parquet`, any protocol(s) (`--protocol`), complete complexes only |
-| Features | 25 requested terms; those with zero standard deviation dropped → in practice the **seven non-zero interface-delta terms** (`fa_atr, fa_rep, fa_sol, fa_elec, fa_pair, hbond_bb_sc, hbond_sc`; his saved models have 7 inputs); `fa_rep` clipped at 50; `RobustScaler` fitted on all data; scaled values clipped to ±10 | the same seven terms as `raw_delta_*` (`--features delta`, default); optionally the 20 constraint-free `raw_*` total terms (`total`) or both; the same clips; the scaler is fitted on the **training** poses only and stored as JSON |
-| Label | stored `rmsd_to_input` ≤ 2 Å: no symmetry correction, and for `apo_relax` the input ligand is the placed-back one, not the crystal pose | symmetry-corrected `rmsd_to_crystal` ≤ 2 Å (`--rmsd-col`, `--cutoff`; `rmsd_to_input_legacy` reproduces his labels) |
-| Ranking unit | complex (`pdb_id`), 300 poses | docking run = complex × protocol, 300 poses (identical for one protocol) |
-| PDBbind split | `StratifiedGroupKFold(5, shuffle, seed 0)` by complex on his RMSD relevance bins; fold 0 = validation; the "PDBbind" numbers are on that fold | **LP-PDBBind** train / val / test (default, from `docking_analysis/splits.csv`); `hac` (CASF-2016 core as test, CASF validation set as val); `cleansplit` (10 % of train held out as val); `random` = his split |
-| External sets | PoseBusters and Astex evaluated with a model trained on all of PDBbind; **43 of the 84 Astex entries are PDBbind complexes** (same PDB id), no PoseBusters entry is | the overlapping entries are removed from train and val (`--no-exclude-overlap` keeps them) |
-| Models | `Reweight`: `nn.Linear(n, 1, bias=False)`; `Ranker`: `n → 64 → 32 → 16 → 1`, ReLU | identical; `--init rosetta` starts the reweighting at the Rosetta weights (§4) |
-| Loss | `BCEWithLogitsLoss` over the batch + β · InfoNCE per complex, τ = 0.5, β = 1; one complex per batch; Adam, lr 1e-4 (reweight) / 1e-5 (ranker); 50 epochs | identical defaults (`--beta --tau --lr --epochs --batch-runs`); optional `--patience` |
-| Model selection | best validation Success@1, ties broken by Success@5; `torch.compile` | identical rule; the untrained model is epoch 0 and eligible; no compile |
-| Evaluation | Success@1 / @5 (`test_*.py`: sort by score, hit if RMSD ≤ 2 Å), pooled ROC AUC on validation | Success@1 / 5 / 10 per run with the benchmark definition, percentile-bootstrap 95 % CIs, paired difference to the interface delta on the same runs, pooled and per-run AUC; the Rosetta baselines (`idelta_score`, corrected `total_score`) evaluated on the same runs |
-| Environment | TensorFlow / Keras / tinygrad pinned but unused (stray `keras` import in `reweight.py`), MPS device | the project venv (torch is already a dependency), CUDA or CPU |
+Facts about his setup that matter for reading his repository: his 25 requested features are the
+interface-delta terms and reduce to the seven non-zero ones (his saved models have 7 inputs);
+his labels were the stored, uncorrected `rmsd_to_input`; his split was a random
+`StratifiedGroupKFold` by complex, and his "PDBbind" numbers are its validation fold; all of
+PDBbind was in his training set although 43 of the 84 Astex entries are PDBbind complexes; the
+checked-in `datasets/astex_test_set.pkl` is stale (72 complexes × 150 poses).
 
 ## 3. Data
 
-- **Poses.** `load_poses(set, protocols, feature_cols)` reads the meta columns (`pdb, protocol,
-  seq_id, total_score, idelta_score, rmsd_to_crystal, rmsd_to_input` and their `*_legacy`
-  values) plus the feature columns of the requested protocol(s), keeps the complete complexes
-  (`complexes.complete`) and sorts by (pdb, protocol, seq_id), so every docking run is a
-  contiguous block of 300 rows (`Grouped.offsets`). One protocol of PDBbind is 3.43 M rows
-  (11,444 complexes) and loads in under a second.
-- **Features.** `delta`: `raw_delta_{fa_atr, fa_rep, fa_sol, fa_elec, fa_pair, hbond_bb_sc,
-  hbond_sc}`, the only interface-delta terms that are not identically zero; the interface
-  delta is their weighted sum with the default weights (`scfx_weights.json`; verified to
-  1e-4). `total`: the 20 `raw_*` terms without the four constraint terms (restraint energies)
-  and `chainbreak` (always zero); the corrected `total_score` is their weighted sum. The delta
-  `fa_rep` is capped at 50 before scaling (99 % of the poses are below 100, the maximum is
-  34,000); `RobustScale` = (x − median) / IQR of the training poses, clipped to ±10.
-- **Labels.** Hit ⇔ `rmsd_to_crystal` ≤ 2 Å. relax · perturb: 5.7 % of the poses are hits,
-  521 of the 11,444 runs have none (the InfoNCE term skips them, the BCE term uses them);
-  apo_relax · perturb: 4.3 % and 1,317 runs without a hit.
-- **PDBbind split** (complete complexes): LP-PDBBind train 5,882 / val 1,566 / test 3,572,
-  424 unassigned (dropped); HAC test 271 (CASF-2016 core) / val 178; CleanSplit test 151,
-  1,949 unassigned. The 43 Astex overlaps fall into LP-PDBBind train/val for 32 of them; those
-  are dropped from training (`results.json: overlap_excluded`).
+- **Poses.** `load_poses(set, protocols)` reads the meta columns and the seven features of the
+  requested protocol(s) from `docked.parquet`, keeps the complete complexes and sorts by
+  (pdb, protocol, seq_id); `Grouped.build(…, group_by="state" | "protocol")` turns a frame into
+  contiguous buckets. The pooled PDBbind training frame has 6.9 M rows and loads in seconds.
+- **Hits.** relax · perturb: 5.7 % of the poses, 521 of 11,444 runs without a hit;
+  apo_relax · perturb: 4.3 %, 1,317 runs without a hit. Buckets without a hit contribute to
+  the BCE term of the ranker only; the InfoNCE term and the LambdaRank objective skip them.
+- **Splits** (complete PDBbind complexes): LP-PDBBind train 5,882 / val 1,566 / test 3,572 (424
+  unassigned dropped); HAC test 271 / val 178 / train 10,992; CleanSplit test 151, 1,949
+  unassigned, val = 10 % of train. Minus the Astex overlaps in train / val.
+- **Preprocessing** (`Preprocess`): `none` — raw energies — for the reweighters and the tree;
+  `robust` for the ranker (delta `fa_rep` capped at 50, median / IQR per term fitted on the
+  training poses, scaled values clipped to ±10; Luca's choices, fitted on train only). Stored
+  as `preprocess.json` of the run.
 
-## 4. Models and training
+## 4. Approaches
 
-- `Reweight` scores a pose as **w · z** (z = scaled features, no bias). A learned reweighting
-  of the energy terms; `weights.csv` reports the weights on the scaled features, on the raw
-  terms, and flipped to Rosetta's lower-is-better sign and normalised to `fa_atr = 0.8` for
-  comparison with the defaults.
-- `Ranker` is Luca's MLP `n → 64 → 32 → 16 → 1` with ReLU, no dropout, no weight decay (he
-  found neither necessary).
-- **Loss** (`BCEPlusInfoNCE`): `BCEWithLogits(score, hit)` over all poses of the batch plus
-  β × mean over the runs of `logsumexp(s/τ) − logsumexp(s_hits/τ)`, the softmax cross-entropy
-  that puts the probability mass of a run on its hits (after Weng 2021, *Contrastive
-  representation learning*). Runs without a hit contribute to the BCE term only.
-- **Training** (`fit`): Adam; one docking run per optimiser step by default (`--batch-runs`
-  pools several); fixed number of epochs (50). After every epoch the validation Success@1 and
-  Success@5 are computed and the best epoch is kept (Success@1, ties by Success@5). The
-  untrained model is evaluated as epoch 0 and can be selected.
-- **Rosetta initialisation** (`--init rosetta`, reweight only): with z = (x − median)/IQR the
-  interface delta Σ w_t x_t equals Σ (w_t IQR_t) z_t + const, so the weights −w_t·IQR_t
-  reproduce the interface-delta ranking exactly (up to the clipped poses). Epoch 0 of such a
-  run therefore shows the baseline on the validation set, and training has to beat it there
-  to be selected — the cleanest form of the "can weights fix it" test.
+- **`reweighted`** — the physics-side baseline, not ML. Score = Σ_t w_t x_t over the seven raw
+  interface terms with **w_t ≥ 0** (projected gradient: clamped at zero after every step), no
+  scaling, no clipping, no bias, so the learned vector *is* a Rosetta weight set. All seven
+  weights are free. A ranking is invariant to their overall scale, so the vector is reported
+  normalised to `fa_atr` = 0.8 (`weights.wts`, next to the raw learned values in
+  `weights.csv`); the scale itself is not meaningless during training, because scaling the
+  weights by c equals dividing the InfoNCE temperature by c, so the optimiser also uses it to
+  sharpen the softmax (`--gauge fa_atr` pins the scale instead; not used). Two starts, reported
+  as two baselines: **random** (all weights drawn from U(0, 1)) and **Rosetta** (the default
+  weights, so epoch 0 *is* the unmodified ranking and training has to beat it on the validation
+  complexes to be selected). Trained with the listwise InfoNCE term
+  only (τ = 0.5): the BCE term of Luca's loss acts on absolute score levels, which raw energies
+  cannot calibrate without a bias. Adam, lr 1e-4, one bucket per step, 50 epochs, best epoch by
+  validation Success@1 then Success@5.
+- **`ranker`** — Luca's MLP `7 → 64 → 32 → 16 → 1` (ReLU) on the robust-scaled features, loss
+  `BCEWithLogits(score, hit)` over the bucket + InfoNCE over the bucket (τ = 0.5, β = 1), Adam
+  lr 1e-5, one bucket per step, 50 epochs, same selection rule. The InfoNCE term compares poses
+  within their bucket only; the BCE term is pointwise (no comparison between systems).
+- **`tree`** — LightGBM `LGBMRanker`, objective `lambdarank`, query groups = the training
+  buckets, labels = hit, raw interface terms, 31 leaves, learning rate 0.05, min 100 poses per
+  leaf, up to 2,000 trees with early stopping (50 rounds) on the validation NDCG@1 — which for
+  binary labels equals Success@1, i.e. the same selection criterion as the torch models.
+  Feature importance (gain) is written as `importance.csv`.
 
 ## 5. Evaluation
 
-- Success@k per docking run as in `docking_analysis.benchmark`: poses sorted by the score
-  (stable sort, lower is better; model scores are negated), success when the rank of the
-  first hit is < k. `train.py` prints a **sanity line** with the full-set baseline Success@k
-  of the training protocol, which must equal the benchmark tables (relax · perturb:
-  71.98 / 84.55 / 88.38 for the interface delta).
-- The rates are percentages of runs; `[95 % CI]` is the percentile bootstrap over runs
-  (2,000 resamples); `Δ` is the paired difference to the interface delta on the same runs with
-  its bootstrap interval — the number that decides whether a model helps.
-- AUC: pooled over all poses of a set (Luca's `roc_auc`) and the mean of the within-run AUCs.
-  The pooled AUC of `total_score` is ≈ 0.5 by construction (totals are not comparable across
-  complexes); the per-run AUC is the meaningful one for it.
-- Test sets: the PDBbind test complexes of the split, PoseBusters (388 complete) and Astex (84
-  complete), each for the training protocol(s) and for any `--eval-protocols`, which shows
-  whether a model trained on relax poses transfers to the apo_relax setting and vice versa.
+- Success@k per docking run with the definition of `docking_analysis.benchmark` (stable sort by
+  the score, success when the first hit has rank < k); `train.py` prints the unmodified
+  Success@k on all complete PDBbind runs of each training protocol as a sanity line that must
+  equal the benchmark tables (relax · perturb 71.98 / 84.55 / 88.38, apo_relax · perturb
+  53.07 / 69.68 / 75.60).
+- Rates in percent of runs; `[95 % CI]` percentile bootstrap over runs (2,000 resamples); `Δ`
+  the paired difference to the unmodified ranking on the same runs with its bootstrap interval —
+  the number that decides whether an approach helps.
+- Whole first-hit-rank distribution (`rank_shift`): the mean reciprocal rank of the first hit
+  (MRR; runs without a hit count 0), the percentage of runs with a hit under both scorers
+  whose first hit moves to a better / the same / a worse rank, and the mean shift of
+  log2(rank + 1). These tell whether an approach that does not move Success@1 still pushes
+  hits up the list.
+- Evaluation groups are docking runs (complex × protocol), also when the training buckets
+  pooled several protocols. Evaluated: the PDBbind test complexes of the split, PoseBusters
+  (388 complete), Astex (84 complete), for both training protocols.
 
 ## 6. How to run
 
 ```bash
-uv run python -m ranking.train --model reweight --init rosetta                     # relax·perturb, delta, LP-PDBBind
-uv run python -m ranking.train --model ranker --eval-protocols relax_docking_perturb apo_relax_docking_perturb
-uv run python -m ranking.train --model reweight --init rosetta --protocol apo_relax_docking_perturb
-uv run python -m ranking.train --model reweight --split random --rmsd-col rmsd_to_input_legacy \
-    --no-exclude-overlap --run-name luca_setup_reweight                            # Luca's setup
-uv run python -m ranking.report                                                    # all runs -> data/figures/ranking/
+uv run python -m ranking.train --model reweight --init random     # all three splits, ~50 min on one GPU
+uv run python -m ranking.train --model reweight --init rosetta
+uv run python -m ranking.train --model ranker
+uv run python -m ranking.train --model tree                       # ~10 min, CPU
+uv run python -m ranking.report                                   # tables of all runs
 ```
 
-A run takes 15–30 min on one GPU (the per-run Python loop dominates, not the model). Outputs
-under `data/ranking/<run>/`: `results.md` / `results.json` (rates, intervals, AUCs, split
-counts, excluded entries, the full epoch history), `per_run.parquet` (per run and scorer:
-`n_hit, first_hit_rank, top1, top5, top10, auc`), `model.pt`, `scaler.json`, `history.csv`,
-`weights.csv` (reweight), `train.log`, `config.json`. `ranking.report` writes
-`data/figures/ranking/ranking_tables.md` and `ranking_results.csv`.
+One run = one approach × split under `data/ranking/<approach>_<split>/` (`results.md` /
+`results.json`, `per_run.parquet`, `model.pt` or `model.txt`, `preprocess.json`, `history.csv`,
+`train.log`, `config.json`, plus `weights.csv` + `weights.wts` for the reweighters and
+`importance.csv` for the tree). `ranking.report` writes `data/figures/ranking/ranking_tables.md`
+and `ranking_results.csv` and only reads runs of the current schema (`"schema": 2` in
+`results.json`); the run directories of the first pass of 2026-10-19 (Luca's original setup,
+scaled signed reweighting, single-protocol training) are ignored by it and can be deleted.
 
-## 7. Results (2026-10-19)
+## 7. Results (runs of 2026-10-20)
 
-Ten runs (`data/ranking/<run>/`, collected in `data/figures/ranking/ranking_tables.md` and
-`ranking_results.csv`), one seed each, 50 epochs, defaults of §4 unless stated. Rates are
-Success@k in percent of docking runs; `Δ [lo, hi]` is the paired difference to the interface
-delta on the same runs with its bootstrap 95 % interval.
+Twelve runs (four approaches × three splits; `data/ranking/<approach>_<split>/`, collected in
+`data/figures/ranking/ranking_tables.md` and `ranking_results.csv`), one seed each. Cells are the
+paired Δ Success@k to the unmodified interface delta on the same docking runs, in points, with
+the percentile-bootstrap 95 % interval; the unmodified row gives the absolute Success@k.
 
-### 7.1 Validation of the port: Luca's setup
+### 7.1 Headline — `apo_relax` · `perturb`, PDBbind test complexes of each split
 
-`luca_setup_reweight` / `luca_setup_ranker`: relax · perturb, labels = stored
-`rmsd_to_input_legacy` ≤ 2 Å, random split by complex (validation fold = 2,289 complexes,
-reported as "PDBbind"), no Astex exclusion. Success@1 / Success@5:
+| approach | LP-PDBBind (n = 3,572) Δ@1 | Δ@5 | Δ@10 | HAC / CASF core (n = 271) Δ@1 | Δ@5 | Δ@10 | CleanSplit (n = 151) Δ@1 | Δ@5 | Δ@10 |
+|---|---|---|---|---|---|---|---|---|---|
+| unmodified (interface delta) | 59.5 | 76.2 | 81.9 | 59.0 | 74.5 | 80.1 | 49.7 | 68.9 | 74.2 |
+| tree (LambdaRank) | +0.4 [−0.6, +1.5] | −0.4 [−1.3, +0.5] | +0.1 [−0.6, +0.9] | −0.4 [−5.2, +4.1] | −0.7 [−3.7, +2.2] | −0.4 [−3.3, +2.6] | +0.7 [−4.6, +6.0] | +0.7 [−4.6, +6.0] | +4.0 [+0.7, +7.9] |
+| reweighted, random start | +1.5 [+0.6, +2.4] | +1.3 [+0.5, +2.0] | +0.8 [+0.2, +1.5] | −1.8 [−4.4, +0.4] | +1.5 [−1.1, +4.1] | +2.6 [+0.4, +4.8] | −0.7 [−4.6, +3.3] | +2.0 [−2.6, +6.0] | +3.3 [+0.0, +6.6] |
+| reweighted, Rosetta start | +1.5 [+0.6, +2.3] | +1.1 [+0.4, +1.9] | +0.9 [+0.3, +1.5] | −0.7 [−3.3, +1.8] | +2.2 [−0.7, +5.2] | +2.2 [+0.0, +4.4] | −0.7 [−4.6, +3.3] | +2.0 [−2.6, +6.0] | +3.3 [+0.0, +6.6] |
+| ranker (MLP) | +0.8 [−0.2, +1.6] | +1.2 [+0.4, +1.9] | +0.9 [+0.3, +1.5] | −0.7 [−4.1, +2.6] | +3.7 [+1.1, +6.3] | +3.0 [+0.0, +5.9] | +2.6 [−2.0, +7.3] | +3.3 [−0.7, +7.9] | +4.6 [+2.0, +7.9] |
 
-| Scorer | PoseBusters (388) | Astex (84) | PDBbind fold |
-|---|---|---|---|
-| Rosetta interface delta — his description | 70.88 / 83.25 | 84.52 / 94.05 | 71.08 / 84.41 |
-| Rosetta interface delta — port | 70.9 / 83.2 | 84.5 / 94.0 | 71.5 / 83.7 |
-| Reweighter — his description | 74.48 / 86.60 | 84.52 / 94.05 | 73.29 / 84.96 |
-| Reweighter — port | 75.0 / 86.1 | 85.7 / 92.9 | 74.3 / 84.9 |
-| Ranker — his description | 74.74 / 85.31 | 86.90 / 94.05 | 73.39 / 85.34 |
-| Ranker — port | 74.7 / 85.3 | 85.7 / 94.0 | 74.0 / 85.6 |
+### 7.2 `relax` · `perturb`, PDBbind test complexes of each split
 
-The baselines on the external sets are identical and the models agree within one complex
-(0.3 points on PoseBusters, 1.2 on Astex); the PDBbind fold is a different random draw over
-a slightly different complex set, hence ±1 point. The port reproduces his pipeline. In this
-setup the gains are +2.8 / +2.4 points Success@1 on the PDBbind fold (reweighter / ranker,
-intervals [+1.6, +3.9] and [+1.4, +3.5]) and +4.1 / +3.9 on PoseBusters.
+| approach | LP-PDBBind Δ@1 | Δ@5 | Δ@10 | HAC Δ@1 | Δ@5 | Δ@10 | CleanSplit Δ@1 | Δ@5 | Δ@10 |
+|---|---|---|---|---|---|---|---|---|---|
+| unmodified (interface delta) | 75.3 | 88.1 | 91.6 | 78.2 | 87.5 | 91.5 | 69.5 | 84.1 | 89.4 |
+| tree (LambdaRank) | −1.3 [−2.3, −0.4] | −1.8 [−2.6, −1.0] | −0.8 [−1.4, −0.2] | −3.0 [−6.6, +0.4] | +0.7 [−2.2, +3.7] | +0.4 [−1.5, +2.2] | −0.7 [−5.3, +4.0] | +2.0 [−1.3, +6.0] | +2.6 [+0.7, +5.3] |
+| reweighted, random start | +0.2 [−0.5, +1.0] | +0.4 [−0.2, +1.0] | +0.1 [−0.3, +0.5] | −0.4 [−2.6, +1.8] | +0.4 [−0.7, +1.5] | +0.4 [−1.5, +2.2] | +0.7 [−2.6, +4.0] | +2.0 [−0.7, +5.3] | +1.3 [+0.0, +3.3] |
+| reweighted, Rosetta start | +0.3 [−0.5, +1.0] | +0.4 [−0.1, +1.0] | +0.1 [−0.3, +0.5] | +0.4 [−1.5, +2.2] | +1.1 [−0.7, +3.0] | +0.0 [−1.5, +1.5] | +0.7 [−2.6, +4.0] | +2.0 [−0.7, +5.3] | +1.3 [+0.0, +3.3] |
+| ranker (MLP) | −0.1 [−0.9, +0.8] | −0.2 [−0.8, +0.4] | +0.1 [−0.4, +0.6] | +2.2 [−0.4, +4.8] | +1.5 [+0.4, +3.0] | +0.0 [−1.1, +1.1] | +3.3 [−0.7, +7.3] | +1.3 [−1.3, +4.0] | +1.3 [+0.0, +3.3] |
 
-**Label effect isolated** (`luca_split_corrected_labels_*`: the same random split and no Astex
-exclusion, but `rmsd_to_crystal` labels): baseline 72.2 / 84.8 on the fold, reweighter 74.5
-(+2.4 [+1.2, +3.5]), ranker 74.5 (+2.4 [+1.4, +3.3]); PoseBusters +2.6 [+0.3, +4.9] for both,
-Astex −1.2 for both. The corrected labels change nothing about the gain on a random split; the
-difference to §7.2 comes from the split.
+### 7.3 External sets, `apo_relax` · `perturb` (training set = the split's training complexes)
 
-### 7.2 Corrected labels, LP-PDBBind split, Astex excluded from training
+PoseBusters (388 complexes; unmodified 57.5 / 71.9 / 77.3): no approach moves Success@1
+(−0.5 to +1.5, all intervals include zero); Success@10 gains +2.6 to +3.4 for the reweighters
+and the ranker (intervals excluding zero for every split), Success@5 +1.3 to +3.6. Astex (84
+complexes; unmodified 64.3 / 79.8 / 88.1): every Δ@1 is positive (+0.0 to +3.6) but every
+interval spans ±5 to ±8 points. The full tables, including the first-hit-rank statistics, are
+in `ranking_tables.md`.
 
-Success@1 with Δ to the interface delta; PDBbind = the 3,572 LP-PDBBind test complexes.
+### 7.4 Learned Rosetta weights (`weights.wts`, normalised to `fa_atr` = 0.8)
 
-**Trained and evaluated on `relax` · `perturb`**
+| split · start | fa_rep | fa_sol | fa_elec | fa_pair | hbond_bb_sc | hbond_sc | selected epoch | learned fa_atr (raw scale) |
+|---|---|---|---|---|---|---|---|---|
+| Rosetta default | 0.40 | 0.60 | 0.42 | 0.80 | 1.30 | 1.30 | — | 0.80 |
+| LP-PDBBind · random | 0.51 | 0.33 | 0.34 | 0.04 | 1.28 | 1.07 | 14 | 0.35 |
+| LP-PDBBind · Rosetta | 0.50 | 0.33 | 0.33 | 0.14 | 1.29 | 1.08 | 10 | 0.36 |
+| HAC · random | 0.49 | 0.37 | 0.32 | 1.06 | 1.42 | 1.02 | 1 | 0.42 |
+| HAC · Rosetta | 0.49 | 0.35 | 0.36 | 0.02 | 1.29 | 0.93 | 18 | 0.38 |
+| CleanSplit · random | 0.51 | 0.36 | 0.37 | 0.04 | 1.34 | 0.97 | 35 | 0.37 |
+| CleanSplit · Rosetta | 0.51 | 0.36 | 0.37 | 0.04 | 1.34 | 0.97 | 35 | 0.37 |
 
-| Scorer | PDBbind test | PoseBusters | Astex |
-|---|---|---|---|
-| interface delta (baseline) | 75.3 | 72.9 | 85.7 |
-| corrected total score | 74.2 (−1.0 [−2.2, +0.1]) | 72.4 (−0.5 [−3.6, +2.6]) | 83.3 (−2.4 [−8.3, +3.6]) |
-| reweight, Rosetta init | 75.6 (+0.4 [−0.5, +1.3]) | 75.3 (+2.3 [+0.3, +4.4]) | 84.5 (−1.2 [−3.6, +0.0]) |
-| reweight, random init | 75.7 (+0.4 [−0.4, +1.3]) | 75.5 (+2.6 [+0.3, +4.9]) | 84.5 (−1.2 [−4.8, +2.4]) |
-| ranker | 75.8 (+0.6 [−0.3, +1.5]) | 75.8 (+2.8 [+0.8, +4.9]) | 83.3 (−2.4 [−6.0, +0.0]) |
-| reweight on the 20 total terms, Rosetta init | 74.2 (−1.0 [−2.2, +0.1]) | 72.2 (−0.8 [−3.9, +2.3]) | 83.3 (−2.4 [−8.3, +3.6]) |
+Five of the six runs converge to the same vector, from both starts and on every split:
+relative to Rosetta's weights, `fa_rep` up (0.5 vs 0.4), `fa_sol` and `fa_elec` down (0.35 vs
+0.6 and 0.42), `fa_pair` switched off (0.8 → 0), `hbond_bb_sc` unchanged, `hbond_sc` slightly
+down (1.0 vs 1.3). The exception, HAC · random, was selected at epoch 1 (its validation set has
+176 complexes) and still carries its random `fa_pair`. The overall scale shrank in every run
+(learned `fa_atr` 0.35–0.42 instead of 0.80): with the InfoNCE temperature fixed at 0.5 the
+optimiser softened the softmax by about a factor of two, which is why the run with `fa_atr`
+pinned at 0.8 (git history of this page) ended up ±0.6 on LP-PDBBind where the free run gains
++1.5 — the free scale is a better-conditioned optimisation, not a different model. Tree
+importance (gain) is dominated by fa_atr, fa_elec and fa_rep; fa_pair contributes nothing.
 
-Success@5: PDBbind 88.1 → 88.2–88.4 (Δ ≤ +0.3, intervals include 0); PoseBusters 83.5 →
-85.8–86.3 (+2.3 to +2.8, intervals exclude 0); Astex 91.7 → 90.5–92.9. Per-run AUC on the
-PDBbind test complexes: interface delta 0.909, ranker 0.916, reweighters 0.896–0.905.
+### 7.5 Reading
 
-**Trained and evaluated on `apo_relax` · `perturb`** (the paper's headline setting)
-
-| Scorer | PDBbind test | PoseBusters | Astex |
-|---|---|---|---|
-| interface delta (baseline) | 59.5 | 57.5 | 64.3 |
-| corrected total score | 55.8 (−3.7 [−4.9, −2.4]) | 55.7 (−1.8 [−5.4, +1.8]) | 65.5 (+1.2 [−7.1, +9.5]) |
-| reweight, Rosetta init | 59.6 (+0.1 [−0.9, +1.2]) | 58.0 (+0.5 [−2.6, +3.6]) | 67.9 (+3.6 [−3.6, +10.7]) |
-| ranker | 60.5 (+1.1 [+0.1, +2.0]) | 57.5 (+0.0 [−2.6, +2.6]) | 66.7 (+2.4 [−3.6, +9.5]) |
-
-Success@5: PDBbind 76.2 → 76.4 (reweight) / 77.3 (ranker, +1.1 [+0.3, +1.9]); PoseBusters
-71.9 → 72.9 / 73.7. Per-run AUC: interface delta 0.887, ranker 0.905, reweight 0.881.
-
-**Transfer between receptor states** (`--eval-protocols`): the relax-trained ranker on
-apo_relax poses gains +1.3 [+0.3, +2.3] on PDBbind, +1.0 on PoseBusters and +6.0
-[−1.2, +13.1] on Astex, i.e. as much as the model trained on apo_relax poses itself; the
-relax-trained reweighters give +0.7 [−0.3, +1.7] (random init) and −1.5 [−2.5, −0.5]
-(Rosetta init). The apo_relax-trained reweighter on relax poses gains +1.0 [+0.1, +1.9] on
-PDBbind and +2.6 [+0.5, +4.9] on PoseBusters, the apo_relax-trained ranker +0.3 and +1.8.
-
-**Learned weights** (reweighters on the seven interface terms, flipped to Rosetta's sign and
-normalised to `fa_atr` = 0.8; Rosetta default in the last column):
-
-| Term | relax, Rosetta init | relax, random init | apo_relax, Rosetta init | Rosetta |
-|---|---|---|---|---|
-| fa_atr | 0.80 | 0.80 | 0.80 | 0.80 |
-| fa_rep | 0.64 | 0.69 | 0.59 | 0.40 |
-| fa_sol | 0.38 | 0.25 | 0.36 | 0.60 |
-| fa_elec | 0.27 | 0.33 | 0.31 | 0.42 |
-| fa_pair | −0.13 | −0.07 | −0.14 | 0.80 |
-| hbond_bb_sc | 0.53 | 0.98 | 0.76 | 1.30 |
-| hbond_sc | 0.57 | 0.83 | 0.48 | 1.30 |
-
-### 7.3 Reading
-
-- **On the PDBbind test complexes the learned heads do not move Success@1 beyond ±1 point.**
-  All relax · perturb intervals include zero; on apo_relax · perturb only the ranker's
-  +1.1 [+0.1, +2.0] excludes it. This is the S5 result on corrected data.
-- **The gain depends on the split, not on the labels.** On a random split by complex the same
-  heads gain +2.4 points on the held-out fold, with corrected labels as well as with Luca's
-  (§7.1); on the LP-PDBBind test complexes, whose proteins are unseen in training, the gain is
-  +0.4 to +0.6. What the heads learn beyond the Rosetta weights is largely protein-specific
-  and does not transfer to new protein families — the leakage-aware split is what turns Luca's
-  "+2–4 points" into "no measurable improvement".
-- **PoseBusters is the only set with a consistent gain**, +2.3 to +2.8 points Success@1 and
-  Success@5 for all three relax heads (intervals exclude zero) — about ten of 388 complexes.
-  Astex (84 complexes) cannot resolve differences of a few points; its intervals span ±5–10.
-- **Total-energy features are worse than the interface terms** (−1.0 on PDBbind), so the
-  receptor-internal terms add noise, not ranking signal; this supports the choice of the seven
-  interface terms in Appendix A.1.
-- **The reweighted term vector is nearly the same across runs and initialisations** (more
-  weight on repulsion, less on solvation, electrostatics and hydrogen bonds, `fa_pair` dropped
-  to ≈ 0) and ranks like the default weights: the linear optimum is flat. This is the
-  reweighting-side view of the energy degeneracy that A.1 / A.2 will quantify.
-- **Caveats.** One seed per configuration (the two reweight initialisations differ by ≈ 0.1
-  point on PDBbind, a rough noise floor); the LP-PDBBind test complexes have a higher baseline
-  Success@1 than the full set (75.3 vs. 72.0 on relax · perturb, 59.5 vs. 53.1 on
-  apo_relax · perturb), so the split is cleaner, not harder, for the ranking question; the
-  final split decision (inventory §4, item 3) is still open — `--split hac` / `cleansplit` give
-  the alternatives; a tree reference head (S5 b) is not implemented.
+- **The ranking is not repaired by any of the three approaches; the best of them gains about
+  1.5 points.** On the headline setting the Δ Success@1 on the PDBbind test complexes lies
+  between −1.8 and +2.6 points over all approaches and splits. The largest split (LP-PDBBind,
+  3,572 complexes) gives tree +0.4 [−0.6, +1.5], reweighted +1.5 [+0.6, +2.4] from either start,
+  ranker +0.8 [−0.2, +1.6]; the reweighting is the only approach whose interval excludes zero
+  there, and it does not reproduce on HAC (−1.8 / −0.7) or CleanSplit (−0.7), whose test sets
+  are too small to resolve ±2 points. On `relax` · `perturb` nothing moves (−3.0 to +3.3,
+  intervals including zero except the tree's small losses on LP-PDBBind).
+- **Success@5 / @10 move by a point or two at most**, and only for the ranker consistently
+  (LP-PDBBind +1.2 / +0.9, HAC +3.7 / +3.0, CleanSplit +3.3 / +4.6 at k = 5 / 10; PoseBusters
+  +2 to +3.6). The MLP pushes some hits a few ranks up without putting them first.
+- **A non-negative reweighting of the seven terms is worth about one to one and a half points
+  on apo_relax poses and nothing on relax poses.** Both starts find the same weight set
+  (§7.4: more repulsion, less solvation and electrostatics, `fa_pair` off), so the two starts
+  are one result and the vector is a genuine, if marginal, alternative Rosetta weight set for
+  ranking. That the optimum is reached from a random start in a few epochs, and that it buys so
+  little, says the linear information in the seven terms is nearly exhausted by the defaults.
+- **The tree is no better than the linear reweighting** on the headline setting and slightly
+  worse on `relax` · `perturb` (−1.3 on LP-PDBBind): non-linear interactions of the seven terms
+  do not carry the missing information either.
+- **Caveats.** One seed per run; HAC and CleanSplit test sets are small (271 and 151
+  complexes, intervals of ±4 to ±6 points) — the LP-PDBBind column is the one to quote; the
+  HAC · random reweighting was selected at epoch 1 on a 176-complex validation set and is the
+  one run whose weights are not converged.

@@ -18,9 +18,10 @@ Two distinct phases, and the analysis phase follows the three tracks of the pape
 2. **Analysis** (runs locally), one package per track:
    - `docking_analysis/` — **Track 1, benchmark**: extraction of the HDF5 files into
      parquet tables and the success-rate tables (sampling vs. ranking).
-   - `ranking/` — **Track 2, fix the ranking**: the pose-ranking models (linear reweighting
-     and an MLP ranker, ported from Luca Friebe's repository) with the Success@k evaluation;
-     the energy-degeneracy analysis and the per-complex oracle are still planned.
+   - `ranking/` — **Track 2, fix the ranking**: four approaches (non-negative reweighting
+     from a random or the Rosetta start, LightGBM LambdaRank tree, Luca Friebe's MLP ranker)
+     against the unmodified interface delta, with the Success@k evaluation; the
+     energy-degeneracy analysis and the per-complex oracle are still planned.
    - `affinity/` — **Track 3, affinity**: the legacy reweighting grid, kept as
      documentation only (not runnable, to be rewritten).
 
@@ -39,11 +40,11 @@ docking_analysis/        Track 1 — extraction + benchmark tables (see "Analysi
   extract.py             H5 -> parquet (data/docking_stats/<set>_full/)
   benchmark.py           success-rate tables per receptor state x protocol
   scfx_weights.json, failed_pdb_ids/, splits.csv   tracked package data
-ranking/                 Track 2 — pose-ranking models (port of Luca's reweighting / ranker)
-  data.py                pose tables from docked.parquet: features, hit labels, runs, PDBbind split
-  models.py              Reweight (linear) and Ranker (MLP), BCE + InfoNCE loss, training loop
-  evaluate.py            Success@k (as benchmark.py), bootstrap CIs, paired deltas, AUCs
-  train.py, report.py    CLIs: one run -> data/ranking/<run>/; comparison tables -> data/figures/ranking/
+ranking/                 Track 2 — ranking approaches vs. the unmodified interface delta
+  data.py                pose tables from docked.parquet: the 7 interface terms, hit labels, buckets, 3 splits
+  models.py              Reweight (non-negative, raw terms), Ranker (Luca's MLP), TreeRanker (LightGBM LambdaRank)
+  evaluate.py            Success@k (as benchmark.py), bootstrap CIs, paired deltas, rank shift, approach tables
+  train.py, report.py    CLIs: one approach x 3 splits -> data/ranking/<approach>_<split>/; tables -> data/figures/ranking/
 affinity/                Track 3 — legacy reweighting grid, documentation only
   constants.py           paths of its (deleted) inputs, Kd regex, zero-variance terms
   data.py, experiment.py, reweighting.py, figures.py, clustering.py, extract_docking_stats.py
@@ -113,42 +114,41 @@ notebooks in the repository; the former exploratory notebooks were folded into
   (its `test` = the 290-id CASF-2016 core set, `val` = the 300-id CASF validation set),
   `cleansplit`, `lppdbbindsplit`. Input for the leakage-aware split decision.
 
-### Track 2 — `ranking/` (pose-ranking models: S5 implemented, S6 planned)
+### Track 2 — `ranking/` (ranking approaches; S5 implemented, S6 planned)
 
-Port of Luca Friebe's `rosettaligand-vs-posebuster` (branch `test_new_architecture`) onto the
-full extraction, with the fixes listed in the inventory §6.1 (labels, features, split, Astex
-overlap). Credited in the package docstring; his repository stays the reference for the
-thesis-era numbers. Methods and results: [docs/ranking.md](docs/ranking.md).
+Setup decided 2026-10-20, documented with the results in [docs/ranking.md](docs/ranking.md):
+the **seven raw interface-delta terms** are the only features anywhere in this track; hit =
+symmetry-corrected `rmsd_to_crystal` ≤ 2 Å; training pool = `relax_docking_perturb` +
+`apo_relax_docking_perturb` of the PDBbind training complexes (not crystal, not std), one
+bucket per complex × receptor state (a pooled std run would join the perturb run of its
+state; relax and apo_relax stay separate; poses are never compared across complexes);
+evaluation per docking run on the PDBbind test complexes, PoseBusters and Astex, **headline =
+Δ to the unmodified interface delta on `apo_relax_docking_perturb`**; all three non-random
+splits (`lppdbbind`, `hac`, `cleansplit`) are reported; the 43 Astex entries that are PDBbind
+complexes are removed from train/val. Thesis-era numbers and the random split are not used.
 
-- `data.py` — `load_poses(set, protocols, feature_cols)` reads one or more protocols of
-  `docked.parquet` (complete complexes only, sorted so that every docking run = 300 poses is a
-  contiguous block). Features: `delta` (default) = the seven non-zero interface terms
-  `raw_delta_{fa_atr, fa_rep, fa_sol, fa_elec, fa_pair, hbond_bb_sc, hbond_sc}` — Luca's 25
-  requested terms reduce to exactly these once the all-zero ones are dropped; `total` = the 20
-  constraint-free `raw_*` terms; `both`. Luca's preprocessing is kept (delta `fa_rep` capped at
-  50, robust scaling, scaled values clipped to ±10) but the scaler is fitted on the training poses
-  only (`RobustScale`, stored as JSON). Hit = `rmsd_to_crystal` ≤ 2 Å (symmetry-corrected).
-  `assign_split` maps the PDBbind complexes to train/val/test: `lppdbbind` (default, LP-PDBBind
-  from `splits.csv`), `hac` (CASF-2016 core as test), `cleansplit`, `random` (Luca's
-  StratifiedGroupKFold, fold 0 = val = "test"). `train.py` removes PDBbind complexes whose PDB
-  entry is an Astex complex from train/val (43 of the 84 Astex entries are in the PDBbind set, no
-  PoseBusters entry is).
-- `models.py` — `Reweight` (bias-free linear; `--init rosetta` starts it at the Rosetta weights,
-  i.e. at the interface-delta ranking) and `Ranker` (64-32-16-1 MLP); `BCEPlusInfoNCE` (Luca's
-  loss, τ = 0.5, β = 1); `fit`: Adam, one docking run per batch, best epoch by validation
-  Success@1 then Success@5 (the untrained model counts as epoch 0 and can be selected).
-- `evaluate.py` — `per_group_success` uses the benchmark's definition (stable sort by score,
-  Success@k ⇔ rank of the first hit < k); percentile-bootstrap CIs over runs, paired differences
-  to `idelta_score` on the same runs, pooled AUC and mean per-run AUC (the pooled AUC of
-  `total_score` is meaningless, totals are not comparable across complexes).
-- `train.py` — one run: `uv run python -m ranking.train --model {reweight,ranker}
-  [--protocol relax_docking_perturb] [--features delta] [--split lppdbbind] [--init rosetta]
-  [--eval-protocols ...]`; outputs under `data/ranking/<run>/` (`results.md/json`,
-  `per_run.parquet`, `model.pt`, `scaler.json`, `history.csv`, `weights.csv`). It prints a
-  sanity line with the full-set baseline Success@k, which must equal the benchmark tables.
-  Luca's original setup: `--split random --rmsd-col rmsd_to_input_legacy --no-exclude-overlap`.
-- `report.py` — `uv run python -m ranking.report` collects all runs into
-  `data/figures/ranking/ranking_tables.md` + `ranking_results.csv`.
+- `data.py` — `load_poses`, `assign_split`, `Preprocess` (`none` = raw energies for the
+  reweighters and the tree; `robust` = Luca's scaling for the MLP, fitted on the training
+  poses), `Grouped.build(..., group_by="state" | "protocol")`.
+- `models.py` — `Reweight`: score = Σ w_t x_t on the raw terms, **w_t ≥ 0** (clamped after
+  every step), all seven weights free (`--gauge fa_atr` would pin the scale; not used),
+  `init="random"` or `"rosetta"` (two baselines; the learned vector is a Rosetta weight set,
+  written normalised to `fa_atr` = 0.8 as `weights.wts`), InfoNCE loss only; `Ranker`: Luca's `7-64-32-16-1` MLP with his BCE + InfoNCE loss; `TreeRanker`:
+  LightGBM LambdaRank, groups = buckets, early stopping on validation NDCG@1; `fit`: Adam, one
+  bucket per step, best epoch by validation Success@1 then Success@5.
+- `evaluate.py` — `per_group_success` (the benchmark's definition), bootstrap CIs, paired
+  differences, `rank_shift` (MRR, earlier/same/later, log-rank shift),
+  `approach_table_markdown` (one row per approach, one column per k).
+- `train.py` — `uv run python -m ranking.train --model {reweight,ranker,tree} [--init random|rosetta]
+  [--split all|lppdbbind|hac|cleansplit]`; loads the data once and trains one run per split
+  into `data/ranking/<approach>_<split>/` (`results.md/json`, `per_run.parquet`, model,
+  `preprocess.json`, `weights.wts` / `importance.csv`). Prints a sanity line with the unmodified
+  Success@k on all complete PDBbind runs, which must equal the benchmark tables.
+- `report.py` — `uv run python -m ranking.report`: the paper's tables (per protocol, headline
+  first; per split for the PDBbind test complexes; per external set) and `ranking_results.csv`
+  under `data/figures/ranking/`; reads only runs with `"schema": 2` (the first-pass runs of
+  2026-10-19 are ignored and can be deleted).
+- Dependency: `lightgbm` (added 2026-10-20) for the tree.
 
 ### Track 3 — `affinity/` (legacy, documentation only)
 

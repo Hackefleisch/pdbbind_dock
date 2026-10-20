@@ -1,27 +1,26 @@
 """
 ranking — Track 2: can the pose ranking be repaired, and why does it resist?
-=============================================================================
+============================================================================
 
-Implemented (2026-10-19): the pose-ranking models of Luca Friebe's thesis repository
-(``github.com/lucafrb/rosettaligand-vs-posebuster``, branch ``test_new_architecture``) ported
-to the full extraction (``data/docking_stats/<set>_full/docked.parquet``) — inventory story S5.
-His repository stays the reference for the thesis-era numbers; the port fixes the labels
-(symmetry-corrected ``rmsd_to_crystal`` instead of the stored ``rmsd_to_input``), the features
-(constraint-free), the split (leakage-aware instead of random by complex) and removes the
-Astex entries from the PDBbind training set.
+Four approaches are compared with the **unmodified Rosetta interface delta** on the seven raw
+interface-delta terms, trained on the pooled ``relax`` · ``perturb`` + ``apo_relax`` · ``perturb``
+runs of the PDBbind training complexes (one bucket per complex × receptor state) and evaluated
+per docking run on the PDBbind test complexes of each of the three non-random splits
+(LP-PDBBind, HAC, CleanSplit), on PoseBusters and on Astex; the headline is the Δ Success@k on
+``apo_relax`` · ``perturb``. Methods and results: ``docs/ranking.md`` (setup decided 2026-10-20).
 
-- ``data.py``      pose tables: the seven interface terms (or the twenty constraint-free total
-                   terms) as features, hits from ``rmsd_to_crystal`` ≤ 2 Å, one docking run
-                   (complex × protocol) as the ranking unit, the PDBbind split (LP-PDBBind by
-                   default; HAC/CASF, CleanSplit, or Luca's random group split);
-- ``models.py``    ``Reweight`` (bias-free linear reweighting) and ``Ranker`` (64-32-16-1 MLP),
-                   the BCE + InfoNCE loss, one run per batch, best epoch by validation Success@1/5;
+- ``data.py``      pose tables from ``docked.parquet``: the seven features, hit labels, buckets,
+                   the three splits, preprocessing (raw, or Luca's robust scaling for the MLP);
+- ``models.py``    ``Reweight`` (non-negative reweighting of the raw terms, random or Rosetta
+                   start — the physics baseline, its weights are a Rosetta weight set),
+                   ``Ranker`` (Luca Friebe's MLP with his BCE + InfoNCE loss), ``TreeRanker``
+                   (LightGBM LambdaRank), the training loop;
 - ``evaluate.py``  Success@k as in ``docking_analysis.benchmark``, bootstrap intervals, paired
-                   differences to the interface delta, pooled and per-run AUC;
-- ``train.py``     CLI: one run = train + evaluate on PDBbind test, PoseBusters and Astex,
-                   outputs under ``data/ranking/<run>/``;
-- ``report.py``    CLI: comparison tables of all runs under ``data/figures/ranking/``.
+                   differences, AUCs, first-hit-rank shift, the one-row-per-approach table;
+- ``train.py``     CLI: one approach, all three splits, outputs under ``data/ranking/<approach>_<split>/``;
+- ``report.py``    CLI: the paper's tables over all runs under ``data/figures/ranking/``.
 
-Still planned (inventory S6, Appendix A.1/A.2): the energy-degeneracy analysis and the
-per-complex oracle probe; a tree model as a second reference head (S5 b).
+The MLP ranker and its loss are a port of Luca Friebe's ``rosettaligand-vs-posebuster``
+(branch ``test_new_architecture``). Still planned (inventory S6, Appendix A.1/A.2): the
+energy-degeneracy analysis and the per-complex oracle probe.
 """

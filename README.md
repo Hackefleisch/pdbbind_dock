@@ -44,8 +44,8 @@ docking_analysis/    Phase 2, Track 1 — extraction + benchmark success tables
   scfx_weights.json  score-function weights as dumped by the runner
   failed_pdb_ids/    ids of the complexes whose docking failed, one file per set
   splits.csv         PDBbind split annotations (PLINDER, HAC, CleanSplit, LP-PDBBind)
-ranking/             Phase 2, Track 2 — pose-ranking models (port of Luca Friebe's
-                     reweighting / ranker): data.py, models.py, evaluate.py, train.py, report.py
+ranking/             Phase 2, Track 2 — ranking approaches (non-negative reweighting, tree,
+                     Luca Friebe's MLP ranker) vs. the unmodified interface delta
 affinity/            Phase 2, Track 3 — energy terms vs. affinity (legacy grid, kept as
                      documentation of what was done; not runnable, to be rewritten)
 scripts/             run_*.slurm (cluster launchers), filter_pdbbind.py, h5_size.py
@@ -106,7 +106,7 @@ Everything lives under `data/` (git-ignored). Sizes are those of the complete pr
 | `pdbbind_cleaned/` | the PDBbind docking inputs (`<pdb>_protein.pdb` + `<pdb>_ligand.sdf`, `index.txt`), derived by `scripts/filter_pdbbind.py` (section 2.1) | derived. **TODO:** ship the exact `index.txt` of the docked set (11,460 ids) | 2.5 GB |
 | `pdbbind_h5/`, `posebuster_h5/`, `astex_h5/` | docking outputs, one `<pdb>.h5` per complex (section 2.3) | **TODO:** deposit (e.g. Zenodo) and DOI; ~390 GB in total | 374 + 14 + 3.2 GB |
 | `docking_stats/<set>_full/` | parquet extraction of the H5 files (section 3.1) | derived; **TODO:** deposit the compact per-pose tables (~3.2 GB) for readers who do not want the H5 files | 3.2 GB |
-| `ranking/<run>/` | Track 2 runs (section 3.2): model, scaler, per-run tables, results | derived | small |
+| `ranking/<approach>_<split>/` | Track 2 runs (section 3.2): model, preprocessing, per-run tables, results | derived | small |
 | `failed_logs/` | SLURM logs of the docking tasks that failed on the cluster | optional; source of `docking_analysis/failed_pdb_ids/` | 0.5 MB |
 | `figures/` | benchmark tables and figures | derived | small |
 
@@ -191,27 +191,31 @@ rank-of-first-hit) are not generated yet.
 
 ### 3.2 Track 2 — can the ranking be fixed? (`ranking/`)
 
-The pose-ranking models of Luca Friebe's thesis repository
+Four approaches are compared with the unmodified Rosetta interface delta on the seven raw
+interface energy terms: a **non-negative reweighting** of the terms (from a random start and
+from the Rosetta weights; the learned vector is a Rosetta weight set), a **LightGBM LambdaRank
+tree**, and the **MLP ranker** of Luca Friebe's thesis repository
 ([lucafrb/rosettaligand-vs-posebuster](https://github.com/lucafrb/rosettaligand-vs-posebuster),
-branch `test_new_architecture`), ported to the extraction: a linear reweighting of the seven
-interface energy terms and a small MLP ranker, both trained with his BCE + InfoNCE loss on
-PDBbind and evaluated by Success@k against the Rosetta interface delta on the PDBbind test
-complexes, PoseBusters and Astex. The port uses symmetry-corrected `rmsd_to_crystal` labels,
-constraint-free features, the LP-PDBBind split by default and removes the 43 Astex entries
-from the PDBbind training set; [docs/ranking.md](docs/ranking.md) has the methods and the
-results.
+branch `test_new_architecture`, ported here). They are trained on the pooled relax · perturb
+and apo_relax · perturb runs of the PDBbind training complexes (one bucket per complex and
+receptor state, so poses are only ranked against poses of the same system) and evaluated by
+Success@k on the PDBbind test complexes of the three non-random splits (LP-PDBBind, HAC,
+CleanSplit), PoseBusters and Astex; the headline number is the difference to the unmodified
+ranking on apo_relax · perturb. Methods and results: [docs/ranking.md](docs/ranking.md).
 
 ```bash
-uv run python -m ranking.train --model reweight --init rosetta      # relax·perturb, LP-PDBBind split
+uv run python -m ranking.train --model reweight --init random     # all three splits
+uv run python -m ranking.train --model reweight --init rosetta
 uv run python -m ranking.train --model ranker
-uv run python -m ranking.train --model reweight --protocol apo_relax_docking_perturb --init rosetta
-uv run python -m ranking.report                                      # tables of all runs
+uv run python -m ranking.train --model tree
+uv run python -m ranking.report                                   # tables of all runs
 ```
 
-Each run writes `results.md/json`, the per-run table, the model and the scaler to
-`data/ranking/<run>/`; the report collects every run into
-`data/figures/ranking/ranking_tables.md`. **TODO:** the energy-degeneracy analysis and the
-per-complex oracle probe (inventory Appendix A.1/A.2).
+Each run writes `results.md/json`, the per-run table, the model and the preprocessing to
+`data/ranking/<approach>_<split>/`; the report collects every run into
+`data/figures/ranking/ranking_tables.md` (one row per approach, one column per k).
+**TODO:** the energy-degeneracy analysis and the per-complex oracle probe (inventory
+Appendix A.1/A.2).
 
 ### 3.3 Track 3 — energy terms vs. affinity (`affinity/`)
 

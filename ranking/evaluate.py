@@ -11,8 +11,9 @@ this (his scores are higher-is-better; :func:`evaluate_scorers` takes care of th
 
 Added for the paper: percentile-bootstrap confidence intervals over runs, the paired bootstrap
 of the difference to the Rosetta interface delta on the same runs, the pooled ROC AUC (Luca's
-``roc_auc``) and the mean per-run AUC (the quantity the per-complex oracle of inventory
-Appendix A.2 bounds).
+``roc_auc``), the mean per-run AUC (the quantity the per-complex oracle of inventory
+Appendix A.2 bounds) and the whole-distribution comparison of the first-hit rank
+(:func:`rank_shift`: MRR, share of runs whose first hit moves earlier / later, log-rank shift).
 """
 
 from __future__ import annotations
@@ -158,5 +159,82 @@ def summary_markdown(summary: pd.DataFrame, ks: tuple[int, ...] = KS, reference:
             else:
                 cells.append("—")
         cells += [f"{r['auc_pooled']:.3f}", f"{r['auc_run_mean']:.3f}"]
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# whole-distribution comparison of the first-hit rank
+# ---------------------------------------------------------------------------
+def rank_shift(per_run: pd.DataFrame, reference: str = "idelta_score") -> pd.DataFrame:
+    """Compare the rank of the first hit of every scorer with *reference* on the same runs
+    (``per_run`` as returned by :func:`evaluate_scorers`, one set × protocol at a time).
+
+    Columns: ``mrr`` mean reciprocal rank of the first hit (runs without a hit count as 0),
+    ``d_mrr`` its difference to the reference, ``earlier`` / ``same`` / ``later`` percent of the
+    runs with a hit under both scorers whose first hit moves to a better / the same / a worse rank,
+    ``log2_rank_shift`` the mean of log2(rank+1) − log2(rank_ref+1) over those runs (negative =
+    earlier)."""
+    wide = per_run.set_index(["set", "pdb", "protocol", "scorer"])["first_hit_rank"].unstack("scorer")
+    ref = wide[reference]
+    mrr_ref = float(np.where(ref.notna(), 1 / (ref + 1), 0.0).mean())
+    rows = []
+    for sc in wide.columns:
+        f = wide[sc]
+        both = (f.notna() & ref.notna()).to_numpy()
+        fv, rv = f.to_numpy(dtype=float)[both], ref.to_numpy(dtype=float)[both]
+        d = fv - rv
+        mrr = float(np.where(f.notna(), 1 / (f + 1), 0.0).mean())
+        rows.append({"scorer": sc, "runs": int(len(f)), "runs_hit_both": int(both.sum()), "mrr": mrr, "d_mrr": mrr - mrr_ref,
+                     "earlier": 100 * (d < 0).mean() if both.any() else np.nan,
+                     "same": 100 * (d == 0).mean() if both.any() else np.nan,
+                     "later": 100 * (d > 0).mean() if both.any() else np.nan,
+                     "log2_rank_shift": float(np.mean(np.log2(fv + 1) - np.log2(rv + 1))) if both.any() else np.nan})
+    return pd.DataFrame(rows)
+
+
+def rank_shift_markdown(df: pd.DataFrame, reference: str = "idelta_score") -> str:
+    cols = ["scorer"] if "set" not in df.columns else ["set", "scorer"]
+    head = cols + ["runs", "MRR", f"Δ MRR vs {reference}", "first hit earlier / same / later (% of runs with a hit under both)", "mean Δ log2(rank+1)"]
+    lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+    for _, r in df.iterrows():
+        cells = [str(r[c]) for c in cols] + [str(int(r["runs"])), f"{r['mrr']:.3f}"]
+        if r["scorer"] == reference:
+            cells += ["—", "—", "—"]
+        else:
+            cells += [f"{r['d_mrr']:+.3f}", f"{r['earlier']:.1f} / {r['same']:.1f} / {r['later']:.1f}", f"{r['log2_rank_shift']:+.3f}"]
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# the paper's table: one row per approach, one column per k
+# ---------------------------------------------------------------------------
+APPROACH_LABELS = {"idelta_score": "unmodified (interface delta)", "tree": "tree (LambdaRank)",
+                   "reweight_random": "reweighted, random start (non-negative, raw terms)",
+                   "reweight_rosetta": "reweighted, Rosetta start (non-negative, raw terms)",
+                   "ranker": "ranker (MLP)"}
+APPROACH_ORDER = ["idelta_score", "tree", "reweight_random", "reweight_rosetta", "ranker"]
+
+
+def approach_table_markdown(summary: pd.DataFrame, ks: tuple[int, ...] = KS, reference: str = "idelta_score",
+                            label_col: str | None = None) -> str:
+    """Rows = approaches in ``APPROACH_ORDER`` (the reference row shows the absolute Success@k, the
+    others the paired Δ [95 % CI] to it), columns = k. ``label_col`` adds its value to the row
+    label (e.g. the split when several runs share one table)."""
+    head = ["approach", "runs"] + [f"Δ Success@{k} [95 % CI]" for k in ks]
+    lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+    order = {name: i for i, name in enumerate(APPROACH_ORDER)}
+    rows = summary.assign(_o=summary["scorer"].map(lambda n: order.get(n, len(order)))).sort_values(["_o"], kind="stable")
+    for _, r in rows.iterrows():
+        label = APPROACH_LABELS.get(r["scorer"], r["scorer"])
+        if label_col and label_col in r and pd.notna(r[label_col]):
+            label += f" — {r[label_col]}"
+        cells = [label, str(int(r["runs"]))]
+        for k in ks:
+            if r["scorer"] == reference or f"d_top{k}" not in r or pd.isna(r[f"d_top{k}"]):
+                cells.append(f"{r[f'top{k}']:.1f} (absolute)")
+            else:
+                cells.append(f"{r[f'd_top{k}']:+.1f} [{r[f'd_top{k}_lo']:+.1f}, {r[f'd_top{k}_hi']:+.1f}]")
         lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines)
