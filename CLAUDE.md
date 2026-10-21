@@ -20,8 +20,9 @@ Two distinct phases, and the analysis phase follows the three tracks of the pape
      parquet tables and the success-rate tables (sampling vs. ranking).
    - `ranking/` — **Track 2, fix the ranking**: four approaches (non-negative reweighting
      from a random or the Rosetta start, LightGBM LambdaRank tree, Luca Friebe's MLP ranker)
-     against the unmodified interface delta, with the Success@k evaluation; the
-     energy-degeneracy analysis and the per-complex oracle are still planned.
+     against the unmodified interface delta, with the Success@k evaluation (S5); the
+     energy-degeneracy analysis and the per-complex oracle with its figures, example
+     complexes and UMAP/t-SNE illustration (S6).
    - `affinity/` — **Track 3, affinity**: the legacy reweighting grid, kept as
      documentation only (not runnable, to be rewritten).
 
@@ -45,6 +46,8 @@ ranking/                 Track 2 — ranking approaches vs. the unmodified inter
   models.py              Reweight (non-negative, raw terms), Ranker (Luca's MLP), TreeRanker (LightGBM LambdaRank)
   evaluate.py            Success@k (as benchmark.py), bootstrap CIs, paired deltas, rank shift, approach tables
   train.py, report.py    CLIs: one approach x 3 splits -> data/ranking/<approach>_<split>/; tables -> data/figures/ranking/
+  degeneracy.py          S6: per-run energy degeneracy (A.1) + per-run oracle (A.2) -> data/ranking/degeneracy[_total]/
+  degeneracy_report.py   S6 figures, oracle-vs-approaches gap, example complexes, UMAP/t-SNE -> data/figures/degeneracy/
 affinity/                Track 3 — legacy reweighting grid, documentation only
   constants.py           paths of its (deleted) inputs, Kd regex, zero-variance terms
   data.py, experiment.py, reweighting.py, figures.py, clustering.py, extract_docking_stats.py
@@ -114,7 +117,7 @@ notebooks in the repository; the former exploratory notebooks were folded into
   (its `test` = the 290-id CASF-2016 core set, `val` = the 300-id CASF validation set),
   `cleansplit`, `lppdbbindsplit`. Input for the leakage-aware split decision.
 
-### Track 2 — `ranking/` (ranking approaches; S5 implemented, S6 planned)
+### Track 2 — `ranking/` (ranking approaches S5; degeneracy + oracle S6)
 
 Setup decided 2026-10-20, documented with the results in [docs/ranking.md](docs/ranking.md):
 the **seven raw interface-delta terms** are the only features anywhere in this track; hit =
@@ -149,6 +152,21 @@ complexes are removed from train/val. Thesis-era numbers and the random split ar
   under `data/figures/ranking/`; reads only runs with `"schema": 2` (the first-pass runs of
   2026-10-19 are ignored and can be deleted).
 - Dependency: `lightgbm` (added 2026-10-20) for the tree.
+- `degeneracy.py` — **S6 / Appendix A.1 + A.2** (implemented 2026-10-21, documented in
+  [docs/degeneracy.md](docs/degeneracy.md)): per docking run (complex × perturb protocol, all
+  three receptor states, all three sets) the seven terms are z-scored over the run's poses;
+  nearest-neighbour distances (Euclidean and Mahalanobis) of every pose to the nearest other
+  correct / incorrect pose give the three populations of A.1; the run's degeneracy threshold is
+  its median correct–correct distance; the per-run **oracle** is a logistic regression on the
+  z-scores (in-sample and stratified-CV AUC, first-hit rank). Skipped by decision: the
+  cross-complex permutation control. `uv run python -m ranking.degeneracy [--terms total]`
+  → `data/ranking/degeneracy[_total]/{runs,poses}.parquet`, `summary.{csv,md}` (~1.5 min, 20 cores).
+- `degeneracy_report.py` — `uv run python -m ranking.degeneracy_report [--no-embedding]`: the
+  A.1 / A.2 figures per set, the oracle vs the schema-2 approaches on the same runs
+  (`oracle_gap.csv`), three example runs (hard / median / easy by CV oracle AUC on the headline
+  protocol, ≥ 10 hits; `examples.{png,csv}`), pooled UMAP + t-SNE of 100 runs, the three-panel
+  summary `headline.png` (`--headline-only` writes just that), and `degeneracy_tables.md` under
+  `data/figures/degeneracy/`.
 
 ### Track 3 — `affinity/` (legacy, documentation only)
 
@@ -210,8 +228,9 @@ SLURM scripts expect the same names under `$WORKSPACE/data/`.
 | `posebuster_h5/` `astex_h5/` | 14 G / 3.2 G | Docking output for the other two sets. |
 | `docking_stats/<set>_full/` | 3.2 G | **Full-set parquet tables** from `docking_analysis.extract` — the data the analyses must use. |
 | `ranking/<run>/` | small | Track 2 runs written by `ranking.train`: model, scaler, per-run tables, `results.json/.md`, `train.log`. |
+| `ranking/degeneracy/`, `ranking/degeneracy_total/` | 530 M each | S6 tables of `ranking.degeneracy` (interface-delta terms / raw totals): `runs.parquet`, `poses.parquet` (one row per pose of every perturb run with a hit), `summary.{csv,md}`. |
 | `failed_logs/` | 472 K | SLURM `.out`/`.err` of the 57 docking tasks that failed on the cluster; source of `docking_analysis/failed_pdb_ids/`. |
-| `figures/` | — | Generated figures and tables: `benchmark/` (Track 1), `ranking/` (Track 2 report); regenerated, safe to clear. |
+| `figures/` | — | Generated figures and tables: `benchmark/` (Track 1), `ranking/` (Track 2 report), `degeneracy/` (S6 figures, examples, embeddings, `degeneracy_tables.md`); regenerated, safe to clear. |
 | `h5_test/` | — | Output of the local smoke test (`python -m docking.runner`); absent unless it was run. |
 
 The legacy zip bundles, the cluster cache and the Nov-2025 summary CSV were deleted on

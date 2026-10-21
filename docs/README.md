@@ -12,6 +12,10 @@ file(s) it documents.
 - [ranking.md](ranking.md) — Track 2: the pose-ranking models ported from Luca Friebe's
   repository (data, labels, split, models, loss, evaluation), what changed in the port, and
   their results on the full extraction (source: [`ranking/`](../ranking/)).
+- [degeneracy.md](degeneracy.md) — Track 2, S6: why the ranking resists repair — the
+  energy-degeneracy analysis (Appendix A.1), the per-complex oracle (A.2), the example
+  complexes and the UMAP/t-SNE illustration (source: [`ranking/degeneracy.py`](../ranking/degeneracy.py),
+  [`ranking/degeneracy_report.py`](../ranking/degeneracy_report.py)).
 
 ## Paper 1 (characterisation of RosettaLigand)
 

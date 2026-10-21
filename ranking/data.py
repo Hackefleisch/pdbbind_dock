@@ -74,15 +74,17 @@ def extraction_dir(set_name: str, extract_dir: Path | str | None = None) -> Path
 
 
 def load_poses(set_name: str, protocols: str | list[str] | tuple[str, ...], extract_dir: Path | str | None = None,
-               complete_only: bool = True) -> pd.DataFrame:
-    """Docked poses of one set for the given protocol(s): meta columns + the seven features,
-    sorted by (pdb, protocol, seq_id) so that every docking run is a contiguous block."""
+               complete_only: bool = True, feature_cols: list[str] | None = None) -> pd.DataFrame:
+    """Docked poses of one set for the given protocol(s): meta columns + the seven features
+    (``feature_cols`` overrides the columns, e.g. the ``raw_*`` totals for the degeneracy
+    analysis), sorted by (pdb, protocol, seq_id) so that every docking run is a contiguous block."""
     protocols = [protocols] if isinstance(protocols, str) else list(protocols)
     unknown = sorted(set(protocols) - set(PROTOCOLS))
     if unknown:
         raise ValueError(f"unknown protocol(s) {unknown}; choose from {PROTOCOLS}")
     d = extraction_dir(set_name, extract_dir)
-    df = pq.read_table(d / "docked.parquet", columns=META_COLS + FEATURE_COLS,
+    cols = META_COLS + [c for c in (feature_cols if feature_cols is not None else FEATURE_COLS) if c not in META_COLS]
+    df = pq.read_table(d / "docked.parquet", columns=cols,
                        filters=[("protocol", "in", protocols)]).to_pandas()
     if complete_only:
         cx = pd.read_parquet(d / "complexes.parquet", columns=["pdb", "complete"])

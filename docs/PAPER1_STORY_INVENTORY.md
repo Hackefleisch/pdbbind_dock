@@ -454,19 +454,39 @@ resists → baseline affinity correlation → outlook (Paper 2).*
 
 #### S6 — Why ranking resists repair: energy degeneracy (Appendix A.1) and per-complex oracle (A.2)
 
-- **Claim.** Wrong poses carry energy vectors indistinguishable from correct ones, and even a
-  per-complex oracle classifier reaches limited AUC: the information is not in the seven terms.
+- **Claim (revised 2026-10-21 after the computation).** The information is not in the seven
+  terms: a linear classifier with weights chosen *per complex* and fitted on the evaluated poses
+  puts a correct pose first in only 66 % of the apo_relax · perturb runs (unmodified 63 %), and
+  the S5 approaches already sit at that ceiling. The failing poses are **not** energy-degenerate
+  copies of correct ones — strict degeneracy (nearest-neighbour sense) covers 5 % of the
+  incorrect poses and one Top-1 failure in ten; the typical winning decoy has a distinct energy
+  profile that the terms rate 2.6–2.8 REU *better* than the nearest correct pose.
 - **Sampling-side evidence already in hand *(PE)*:** the `apo_relax` · `perturb` setting (S1, S2)
   is where RosettaLigand samples the most diverse states of equal energetic profile and where Top-1 falls
-  furthest below the any-hit rate; Appendix A.1/A.2 are the quantitative version of that observation.
-- **Can tell now:** nothing computed, but every input exists (seven non-zero `raw_delta_*` terms,
-  `raw_*` totals for the robustness check) for all 20.6 M poses.
-- **To do (medium; hours of compute, parallelisable):** implement Appendix A.1 (per-complex
-  z-scoring; nearest-neighbour distances incorrect → correct vs correct → correct vs cross-complex
-  control; density plot, hexbin, headline percentages) and A.2 (per-complex logistic regression with
-  cross-validation; AUC distribution; correlation with the degeneracy fraction; gap to global
-  reweighting). Run on Perturb poses (Standard poses are near-native by construction), chunked over
-  `docked.parquet`. UMAP/t-SNE only as illustration.
+  furthest below the any-hit rate; A.1/A.2 now show those states are *distinct* in energy space
+  and scored better — genuine minima of the energy function, not indistinguishable ones.
+- **Can tell now** (implemented 2026-10-21 in `ranking/degeneracy.py` + `degeneracy_report.py`,
+  results and reading in [degeneracy.md](degeneracy.md) §0 with the headline figure
+  `data/figures/degeneracy/headline.png`; all figures under `data/figures/degeneracy/`): per docking
+  run (complex × perturb protocol, three receptor states, three sets), z-scores per run, Euclidean
+  and Mahalanobis nearest-neighbour distances, threshold = median correct–correct distance, per-run
+  logistic-regression oracle (in-sample and 5-fold CV), the per-run A.1 summary, three example
+  complexes, UMAP/t-SNE; the cross-complex permutation control was dropped by decision.
+  **Numbers** (PDBbind, apo_relax · perturb, 9,174 runs with ≥ 2 hits): incorrect poses degenerate
+  10.2 %, energy-degenerate decoys (degenerate and > 5 Å) 5.0 %, of which 1.3 % also score ≤ their
+  nearest correct pose; best-scoring pose a degenerate decoy in 4.3 % of runs (1.3 % far); of the
+  Top-1 failures 11 % degenerate, 60 % near-misses (2–5 Å); per-run AUC median 0.909 unmodified vs
+  0.938 oracle CV / 0.973 in-sample; Success@1 62.6 / 58.2 / 66.4 (unmodified / oracle CV /
+  in-sample); 33 % of runs have oracle CV AUC < 0.9; Spearman(oracle AUC, degenerate fraction)
+  −0.67; on the LP-PDBBind test runs the S5 approaches reach Success@1 66.5–67.7 against the
+  in-sample oracle's 67.9. Per-complex optimal weights agree in sign only for fa_atr, fa_rep,
+  fa_elec; fa_sol, fa_pair and the H-bond terms flip in ~half of the complexes. Robust to the
+  Mahalanobis metric and to the raw_* totals (slightly more degenerate, weaker oracle). Examples:
+  `4nhx` hard (10-atom fragment, AUC 0.39, oracle in-sample first hit at rank 16), `4tjw` median
+  (Top-1 success, AUC 0.99), `6udi` easy (perfect).
+- **To do (small):** decide whether the hard example should be the extreme (default) or a
+  low-quantile run (`--example-quantiles`); optional LP feasibility per run for the exact Top-1
+  ceiling of a linear scorer (not computed; ≥ the in-sample oracle); figure polish for the paper.
 
 ### Track T3 — Affinity
 
@@ -558,7 +578,7 @@ quotes them by accident; every one of them is superseded by §1 or must be recom
 1. *Done:* `docking_analysis/benchmark.py` (S1, S2, S8) on the symmetry-corrected full extraction.
    *Open:* the figures (six-panel success-vs-N, any-hit vs Top-1 per setting, rank-of-first-hit
    density).
-2. Appendix A.1 + A.2 (S6) on Perturb poses.
+2. ~~Appendix A.1 + A.2 (S6) on Perturb poses.~~ Done 2026-10-21 ([degeneracy.md](degeneracy.md)).
 3. PoseBusters validity on Top-1 / best poses (S4).
 4. Rewrite the affinity grid on the full extraction; Ki extension; bootstrap CIs (S7).
 5. *Done (2026-10-20):* the four ranking approaches on the decided setup (S5, `ranking/`,
