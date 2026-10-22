@@ -179,16 +179,20 @@ how well does the interface delta of the docked poses track the experimental aff
 much does a linear reweighting of the seven interface terms add? Setup: labels = pK of the
 **exact** Kd / Ki values of the PDBbind index (headline `kdki`, 6,708 complete complexes; IC50
 separately, 4,579); the **same three splits as S5** (LP-PDBBind headline, HAC = CASF-2016 core as
-test, CleanSplit), training complexes = train + val (the models are least squares, nothing to
-select), plus the CASF core complexes outside each split's training set as external test;
+test, CleanSplit), point fits on the training complexes and the conformal slack calibrated on
+the validation complexes, plus the CASF core complexes outside train + val as external test;
 **pools** = which poses are aggregated (one docking run, the perturb + std runs of a state, the
 relaxed holo complex `relax_ref`, the unrelaxed `crystal` complex); **aggregations** `best`
 (lowest interface delta, the headline), `mean10`, `mean` (over poses with interface delta ≤ 0),
 `best_hit` (oracle); **approaches** = calibrated interface delta (reference), ligand heavy-atom
 count, free-sign reweighting, non-negative reweighting (a Rosetta weight set), reweighting + size;
-**metrics** Pearson r (CASF scoring power), Spearman ρ, RMSE in pK with percentile-bootstrap 95 %
-intervals over complexes and the paired Δr to the reference. Headline cell: Kd + Ki,
-`apo_relax_docking_perturb`, best pose, LP-PDBBind test complexes.
+**metrics** (revised 2026-10-22: absolute prediction, not correlation) **MAE in pK against the
+constant predictor**, paired ΔMAE with bootstrap intervals, **95 % lower bounds per complex**
+(split conformal calibrated on the validation complexes, and a τ = 0.05 quantile model; coverage,
+slack, share certified above pK 5 / 6), Pearson r secondary; point fits with `l1` (median
+regression, headline) and `l2`; the reweightings refitted on three **term sets** (all / without
+fa_pair / enthalpic). Headline cell: Kd + Ki, `apo_relax_docking_perturb`, best pose, LP-PDBBind
+test complexes, l1 fits.
 
 - `data.py` — `load_labels` (index parser; relation `=` only is exact), `RUN_POOLS` / `SEED_POOLS`,
   `aggregate`, `build_features` / `load_features` (cache `data/affinity/features.parquet`, ~40 s),
@@ -196,9 +200,12 @@ intervals over complexes and the paired Δr to the reference. Headline cell: Kd 
   pools the interface delta is recomputed from the terms (the stored seed value is corrupt for
   five relax seeds and one crystal row).
 - `models.py` — `Linear` (pK = X·coef + b), `fit_ols`, `fit_nnls` (non-negative on centred data),
-  `APPROACH_FEATURES`; energy weights = −coef, normalised to fa_atr = 0.8 for the `.wts` file.
-- `evaluate.py` — `evaluate(y, preds)`: metrics + bootstrap intervals + paired Δ on the same
-  resamples; `approach_table_markdown`.
+  `fit_quantile` (median regression `l1` and the τ = 0.05 lower-bound model; IRLS, or a linear
+  programme for the non-negative model), `TERM_SETS` (all / no_pair / enthalpic), `predictors()`;
+  energy weights = −coef, normalised to fa_atr = 0.8 for the `.wts` file.
+- `evaluate.py` — `evaluate(y, preds, bounds)`: MAE / RMSE / r with bootstrap intervals, paired
+  ΔMAE to the reference and to the constant null, coverage / slack / certified share of the
+  lower bounds; `conformal_slack` (one-sided split conformal); `mae_table_markdown`.
 - `train.py` — `uv run python -m affinity.train [--labels kdki ic50] [--split all] [--pool ...|all]
   [--aggregation ...]`: builds the feature cache if missing, writes `baseline_all.csv` (the unmodified
   score on all labelled complexes, no split), then the grid → `data/affinity/{results.csv, weights.csv,
@@ -207,9 +214,12 @@ intervals over complexes and the paired Δr to the reference. Headline cell: Kd 
   (eight tables), `affinity_results.csv`, `headline_scatter.png`, `pools.png`, `weights.png`.
 - Not implemented by decision: Appendix A.3 step 2 (sampled-density free energy) and the RMSD
   clustering of the legacy grid.
-- Result (2026-10-21, headline cell): unmodified r = 0.31, ligand size 0.42, reweighted 0.37,
-  reweighted + size 0.43; the best hit and the relaxed holo complex do no better than the best
-  pose; the non-negative weights switch fa_rep and fa_pair off on every split.
+- Result (2026-10-22, headline cell, MAE in pK): constant 1.56, unmodified 1.49, ligand size
+  1.46, reweighted 1.45–1.46; the 95 % lower bound sits 2.4 pK below the prediction and certifies
+  a 10 µM binder for ~10 % of the complexes; the best hit (1.54) and the relaxed holo complex
+  (1.60) are worse than the best pose; dropping fa_pair costs nothing, the enthalpic set ≤ 0.01
+  pK; the non-negative weights switch fa_rep and fa_pair off on every split. Pearson r (l2):
+  0.31 / 0.42 / 0.37.
 
 - [docking/result.py](docking/result.py) — `Result` / `PDBRinterface`: the H5
   reader used by the extraction. **Auto-corrects

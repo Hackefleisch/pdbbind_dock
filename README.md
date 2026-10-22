@@ -225,13 +225,15 @@ and how much does a linear reweighting of its seven interface terms add? Labels 
 the exact Kd and Ki values of the PDBbind index (IC50 reported separately); the poses of a
 complex are aggregated per pool (one docking run, the perturb + std runs of a receptor state,
 the relaxed holo complex, the crystal complex) and aggregation (best pose, mean of the 10 best,
-filtered mean, best hit as oracle); the calibrated interface delta, the ligand heavy-atom count
-and three least-squares reweightings are compared by Pearson r with bootstrap intervals on the
-test complexes of the three splits of Track 2 and on the CASF-2016 core set. Methods and
-results: [docs/affinity.md](docs/affinity.md).
+filtered mean, best hit as oracle); the constant predictor, the calibrated interface delta, the
+ligand heavy-atom count and three reweightings of the interface terms (median regression and
+least squares, three term sets) are compared by the MAE in pK with bootstrap intervals and by
+95 % lower bounds per complex (split conformal and quantile regression) on the test complexes
+of the three splits of Track 2 and on the CASF-2016 core set; Pearson r is kept for comparison
+with the CASF scoring power. Methods and results: [docs/affinity.md](docs/affinity.md).
 
 ```bash
-uv run python -m affinity.train                 # feature cache + the grid, ~10 min
+uv run python -m affinity.train                 # feature cache + the grid, ~15 min
 uv run python -m affinity.report                # tables and figures
 ```
 

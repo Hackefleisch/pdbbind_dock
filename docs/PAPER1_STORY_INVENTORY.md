@@ -490,11 +490,14 @@ resists → baseline affinity correlation → outlook (Paper 2).*
 
 #### S7 — Score vs affinity (T3)
 
-- **Claim (revised 2026-10-21 after the computation).** The interface delta of the best-scoring
-  pose is a weak predictor of affinity and, on a leakage-controlled split, a worse one than the
-  ligand's heavy-atom count; reweighting its seven terms adds about +0.06 in Pearson r and does
-  not close that gap. The limit is the scoring function, not the pose: the correct pose and the
-  relaxed holo complex correlate no better than the best-scoring docked pose.
+- **Claim (revised 2026-10-22 after the computation).** Binding affinity cannot be calculated
+  from the interface delta of a docked pose: on the leakage-controlled split the calibrated
+  score predicts pK within 1.49 pK on average, the constant predictor within 1.56, the ligand's
+  heavy-atom count within 1.46; a reweighting of the seven terms gains 0.03–0.04 pK over the
+  score and matches the size; a 95 % lower bound has to sit 2.4 pK below the prediction, so a
+  10 µM binder can be certified for about one complex in ten. The limit is the scoring function,
+  not the pose: the correct pose predicts worse than the best-scoring one, and the relaxed holo
+  complex with the default weights is worse than the constant.
 - **Setup decided 2026-10-21** (implemented in `affinity/`, documented with the results in
   [affinity.md](affinity.md); the legacy grid is in the git history): labels = pK of the exact
   Kd + Ki values (6,708 complete complexes), IC50 separately (4,579); the same three splits as S5
@@ -503,28 +506,62 @@ resists → baseline affinity correlation → outlook (Paper 2).*
   training set as external test; pools = one docking run / perturb + std of a receptor state /
   relaxed holo complex / crystal complex; aggregations best (headline), mean of 10, filtered mean,
   best-hit oracle; approaches = calibrated interface delta (reference), ligand heavy-atom count,
-  free-sign and non-negative least-squares reweighting, reweighting + size; Pearson r with
-  bootstrap intervals and the paired Δr. Headline cell: Kd + Ki · apo_relax · perturb · best pose ·
-  LP-PDBBind test complexes.
-- **Numbers** (LP-PDBBind test, n = 1,874, Kd + Ki; [affinity.md](affinity.md) §6): unmodified
-  r = 0.308 [0.270, 0.346]; ligand size 0.418 [0.380, 0.457]; reweighted 0.373 (+0.065 [+0.046,
-  +0.085]); non-negative 0.372; reweighted + size 0.425 (+0.007 over the size alone). relax ·
-  perturb best pose 0.331; best-hit oracle 0.280; relaxed holo complex 0.277 (reweighted 0.396);
-  unrelaxed crystal complex −0.107 (clashes; reweighted 0.408). CASF-2016 core (HAC test, n =
-  271): 0.520 / 0.535 / 0.624 / 0.629. All 6,708 labelled complexes without a split: unmodified
-  0.43–0.45 for every best-pose pool (Kd only 0.36–0.39 = the legacy r ≈ 0.39 recomputed). IC50
-  (LP-PDBBind, n = 1,669): 0.419 / 0.514 / 0.471 / 0.544. Learned non-negative weights (fa_atr =
-  0.8): fa_rep 0, fa_sol 0.28, fa_elec 0.18, fa_pair 0, hbond_bb_sc 0.41, hbond_sc 0.35, the same
-  on the three splits up to ±0.1 (HAC and CleanSplit drop one H-bond term).
-- **Caveats:** Pearson r on pK with PDBbind's label noise; the split decides the number (0.31 on
-  LP-PDBBind vs 0.52 on the CASF core, whose protein families are in the training set); HAC and
-  CleanSplit test sets are small (271 / 151); Ki correlates with size far more than Kd (0.48 vs
-  0.36); no clustering, no ensemble estimator.
-- **To do:** Appendix A.3 step 2 (sampled-density free energy with Bayesian error bars) is new
-  code and an open Paper 1 / Paper 2 boundary decision (§4 item 4); the filtered mean over the
-  near-native ensemble of the std runs reaching 0.47 against 0.45 for the best pose (all
-  complexes, no split) is the only hint in the data so far. Literature `[CITE]`: the CASF-2016
-  scoring-power numbers of classical functions for the 0.52 comparison.
+  free-sign and non-negative reweighting, reweighting + size. **Revised 2026-10-22:** the question
+  is absolute prediction, so the headline metric is the **MAE in pK against the constant
+  predictor** (training median) with the paired ΔMAE and bootstrap intervals, Pearson r only as
+  the secondary CASF-comparable column; every predictor gets a **95 % lower bound per complex**
+  (split conformal with the validation complexes as calibration set, and a τ = 0.05 quantile
+  model), judged by coverage, slack and the share of complexes certified above pK 5 / 6; the
+  point fits are median regressions (`l1`, matching the MAE) next to least squares; the three
+  reweightings are refitted on three **term sets** (all seven / without fa_pair / enthalpic
+  without fa_pair and fa_sol). Headline cell: Kd + Ki · apo_relax · perturb · best pose ·
+  LP-PDBBind test complexes, l1 fits.
+- **Numbers** (MAE in pK, l1 fits, LP-PDBBind test, n = 1,874, Kd + Ki; [affinity.md](affinity.md)
+  §6): constant 1.56 [1.51, 1.61]; unmodified 1.49 [1.44, 1.54]; ligand size 1.46; reweighted
+  1.46 (ΔMAE −0.03 [−0.05, −0.01]); non-negative 1.45; reweighted + size 1.45. Conformal 95 % lower
+  bound: slack 2.4 pK (size 2.0), coverage 94–96 %, certified ≥ pK 5 for 9–14 % of the complexes,
+  ≥ pK 6 for 2–3 %. HAC (CASF core, n = 271): 1.74 / 1.50 / 1.50 / 1.39 / 1.37; CleanSplit (n =
+  151): 1.85 / 1.62 / 1.51 / 1.50 / 1.45. Best-hit oracle 1.54, relaxed holo complex 1.60
+  (reweighted 1.47), unrelaxed crystal complex 1.57 (reweighted 1.46). Term ablation: without
+  fa_pair identical; enthalpic (no fa_pair, no fa_sol) ≤ 0.01 pK worse, with the non-negative fit
+  degenerating to fa_atr alone. IC50 (LP-PDBBind, n = 1,669): 1.24 / 1.11 / 1.09 / 1.10 / 1.06.
+  Pearson r of the l2 fits (CASF-comparable): unmodified 0.308, size 0.418, reweighted 0.374; on
+  the CASF core 0.520 / 0.535 / 0.625; all 6,708 labelled complexes without a split 0.43–0.45
+  (Kd only 0.36–0.39 = the legacy r ≈ 0.39 recomputed). Learned non-negative weights (fa_atr =
+  0.8, l1): fa_rep 0, fa_sol 0.24–0.33, fa_elec ≈ 0.2, fa_pair 0, H-bond terms 0.3–0.4, the same on
+  the three splits (CleanSplit drops hbond_bb_sc); the calibration slope −0.21 pK per REU puts one
+  REU of interface delta at 0.28 kcal/mol.
+- **Caveats:** PDBbind's label noise bounds the attainable MAE, but not at 1.5 pK; the split
+  decides the number (the constant is 0.25–0.35 pK worse on HAC / CleanSplit because their test
+  distributions differ from the training median); HAC and CleanSplit test sets are small (271 /
+  151) and their calibration sets smaller (103 / 513); the size baseline is a property of
+  PDBbind's one-binder-per-pocket regime (to-do below; the CASF core, built from ligand clusters
+  per target, is the first in-data hint: there size gains nothing over the score); no clustering,
+  no ensemble estimator.
+- **To do.**
+  - **External ligand-series test `[COMPUTE]` (Appendix B run E, decided 2026-10-22).** The
+    ligand-size baseline is a property of PDBbind: every docked ligand is a co-crystallised
+    binder that fills its pocket, so a bigger ligand has more contacts and a stronger energy. In
+    a regime with diverse ligands per target (congeneric series, ligands that do not fit) that
+    relation is expected to collapse, and so is the contact-driven part of the interface delta.
+    Plan: take newer sets with ligand series and measured affinities on a shared receptor
+    (candidates `[VERIFY]`: the OpenFE / Schrödinger FEP benchmark series, the Merck FEP set,
+    HiQBind-style curated series), dock every ligand into the series' reference receptor with the
+    existing protocol, train on the PDBbind corpus as here and evaluate there with MAE and the
+    lower bounds, split into **easy** (target and ligand class in our training corpus), **medium**
+    (target absent but related proteins or ligands present — leakage by similarity) and **hard**
+    (genuinely novel). Needs dataset research, a target-similarity assignment and new docking;
+    not started. Cheap precursor on the existing data, optional: a within-target evaluation
+    of PDBbind (targets with ≥ 5–10 labelled complexes, MAE after removing the target mean) —
+    needs a protein identifier per complex (the PDBbind name index with UniProt ids is not in
+    `data/pdbbind_2020plus`, or sequence clustering of the receptor files).
+  - Appendix A.3 step 2 (sampled-density free energy with Bayesian error bars) is new code and
+    an open Paper 1 / Paper 2 boundary decision (§4 item 4); the term ablation of this step
+    (all / without fa_pair / enthalpic) is the starting point for its energy function. The
+    filtered mean over the near-native ensemble of the std runs reaching 0.47 against 0.45 for
+    the best pose (all complexes, no split, Pearson r) is the only hint in the data so far.
+  - Literature `[CITE]`: the CASF-2016 scoring-power numbers of classical functions for the
+    CASF-core comparison.
 
 ### Cross-cutting
 
@@ -841,6 +878,7 @@ only items that require new cluster runs. A and B are shared with Paper 2 (= C3 
 | **B** | **True apo receptors** for targets with an apo PDB entry | S8 question 2 (pocket recovery from an unbound structure) | Medium | Requires an apo↔holo matching step `[TODO]`; without it, that question must be reworded |
 | **C** | **Run the PoseBusters validity suite** on the current poses | S4 corrected PB-valid ranking after the RDKit/kekulé fix | **High** | Analysis-level compute only, no docking |
 | **D** | Optional: **more samples on a subset** (e.g. 1,000 poses for a few hundred complexes) | S1 saturation check — does the success-vs-N curve flatten before 300? | Low | The analytic success-vs-N of §1 may already answer it |
+| **E** | **Ligand-series docking on external affinity sets** — every ligand of a congeneric series docked into the series' reference receptor (perturb protocol; no crystal conformer for ligands without a structure) | S7: does the affinity signal of the interface delta survive outside PDBbind's one-binder-per-pocket regime, against the ligand-size baseline; easy / medium / hard by target and ligand overlap with the training corpus | Medium | Added 2026-10-22; dataset choice and target-similarity assignment `[TODO]` before any docking |
 
 Not needed for Paper 1: unconstrained relaxation and thermal basin sampling (Paper 2 / C1, C2).
 
