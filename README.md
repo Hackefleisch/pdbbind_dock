@@ -235,6 +235,7 @@ with the CASF scoring power. Methods and results: [docs/affinity.md](docs/affini
 ```bash
 uv run python -m affinity.train                 # feature cache + the grid, ~15 min
 uv run python -m affinity.report                # tables and figures
+uv run python -m affinity.diagnostics           # regression-to-the-mean and pose-energy-distribution diagnostics
 ```
 
 Outputs: `data/affinity/` (feature cache, `results.csv`, weights, per-complex predictions) and

@@ -54,6 +54,7 @@ affinity/                Track 3 — score vs. affinity (S7): the interface delt
   models.py              calibrated interface delta, ligand size, free-sign / non-negative reweighting (+ size), all least squares
   evaluate.py            Pearson r, Spearman ρ, RMSE with bootstrap CIs and the paired Δ to the calibrated interface delta
   train.py, report.py    CLIs: the grid label set x split x pool x aggregation -> data/affinity/; tables + figures -> data/figures/affinity/
+  diagnostics.py         regression-to-the-mean table + pose-energy-distribution statistics vs pK -> data/figures/affinity/diagnostics.md
 scripts/                 run_*.slurm, filter_pdbbind.py, h5_size.py
 docs/                    methods-level documentation and the paper planning documents
 data/                    ALL inputs, docking outputs, caches, figures — git-ignored
@@ -211,7 +212,14 @@ test complexes, l1 fits.
   score on all labelled complexes, no split), then the grid → `data/affinity/{results.csv, weights.csv,
   weights_nonneg_<split>.wts, predictions.parquet, results.json, results.md, train.log}` (~10 min).
 - `report.py` — `uv run python -m affinity.report`: `data/figures/affinity/affinity_tables.md`
-  (eight tables), `affinity_results.csv`, `headline_scatter.png`, `pools.png`, `weights.png`.
+  (ten tables), `affinity_results.csv`, `headline_scatter.png`, `lower_bound.png`, `pools.png`,
+  `weights.png`.
+- `diagnostics.py` — `uv run python -m affinity.diagnostics`: the decile / slope table of the
+  headline cell (regression to the mean) and the per-run pose-energy-distribution statistics
+  (gap to the 10th / median pose, poses within 2 / 5 REU, hit fraction, log-sum-exp free energies)
+  with their partial correlations with pK given size and minimum → `diagnostics.md`,
+  `data/affinity/shape_statistics.parquet`. Result: the distribution adds nothing beyond the
+  minimum and the size (partial ρ within ±0.07); constraint on A.3 step 2 recorded in the inventory.
 - Not implemented by decision: Appendix A.3 step 2 (sampled-density free energy) and the RMSD
   clustering of the legacy grid.
 - Result (2026-10-22, headline cell, MAE in pK): constant 1.56, unmodified 1.49, ligand size

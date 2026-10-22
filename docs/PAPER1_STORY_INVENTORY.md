@@ -538,6 +538,19 @@ resists → baseline affinity correlation → outlook (Paper 2).*
   PDBbind's one-binder-per-pocket regime (to-do below; the CASF core, built from ligand clusters
   per target, is the first in-data hint: there size gains nothing over the score); no clustering,
   no ensemble estimator.
+- **Diagnostics (2026-10-22, `affinity.diagnostics`, [affinity.md](affinity.md) §8).** The missed
+  tails are regression to the mean: the predictions spread half as much as the labels (slope
+  0.15–0.24 per pK of label ≈ r²), the lowest label decile (pK < 3.9) is predicted at 4.8–5.5 and
+  the highest (> 8.7) at 6.4–6.7, with an MAE of 1.8–3.0 pK there against 0.9–1.0 in the middle;
+  nothing short of r ≈ 0.8 changes that. The **pose-energy distribution of the perturb runs
+  carries no affinity signal beyond the minimum and the ligand size**: the gap from the best pose
+  to the 10th / median pose, the poses within 2 / 5 REU of the minimum, the hit fraction and the
+  log-sum-exp free energies at kT = 1 / 3 REU (Paper 2's S1) all have |ρ| 0.1–0.4 with pK but
+  partial ρ within ±0.07 after conditioning on the heavy-atom count and the minimum; at matched
+  minimum energy weak and strong binders have the same distribution and the strong ones a lower
+  hit fraction. The hypothesis that strong binders populate their top basin more densely is
+  therefore untestable on these samples (catchment of a perturbed start, not population; spread
+  measured in energy, not geometry) — the constraint on A.3 step 2 stated there.
 - **To do.**
   - **External ligand-series test `[COMPUTE]` (Appendix B run E, decided 2026-10-22).** The
     ligand-size baseline is a property of PDBbind: every docked ligand is a co-crystallised
@@ -852,6 +865,19 @@ one:
    affinity *with error bars*, and check that the error bars are calibrated — complexes with few
    distinct basins should come out visibly less certain. This is a genuine selling point: almost
    no docking score reports a calibrated uncertainty.
+
+**Constraint from the single-pose diagnostics (2026-10-22, [affinity.md](affinity.md) §8).** On
+the existing perturb samples the distribution of the pose energies adds nothing to the minimum
+and the ligand size (partial ρ within ±0.07 for the gap to the 10th / median pose, the poses
+within 2 / 5 REU, the hit fraction and the log-sum-exp free energies at kT = 1 / 3 REU; weak and
+strong binders have the same distribution at matched minimum). Step 2 therefore has to (i) use
+an unbiased or thermal sampler (Appendix B run A, Paper 2's C2) or correct for the sampler's
+catchment bias explicitly — a 5 Å perturbed start plus minimisation returns which basin a start
+falls into, not a population; (ii) measure basin width geometrically (RMSD / torsion spread of
+the poses near the minimum, i.e. pairwise ligand RMSDs per run), not as a spread of energies;
+(iii) normalise per complex and report the gain beyond the minimum and the size, because every
+spread statistic scales with |E_min| and the heavy-atom count. Without these three it reproduces
+the null result with more machinery.
 
 **Paper 1 / Paper 2 boundary — open decision (§4, item 4).** Step 2 is the descriptive, non-learned
 sibling of Paper 2's estimator ladder (S3–S5 there). Suggested line, to be agreed with co-authors:

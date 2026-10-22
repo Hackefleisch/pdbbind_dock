@@ -31,6 +31,9 @@ term ablation costs nothing for `fa_pair` and at most 0.01 pK for the enthalpic 
 non-negative enthalpic fit degenerates to `fa_atr` alone — a contact count. The learned weights
 are the same on every split: `fa_rep` and `fa_pair` off, `fa_sol` and `fa_elec` at a third to a
 half of their default, the hydrogen-bond terms at a quarter (§6.8).
+Two diagnostics (§8) explain the figures: the missed tails are the regression to the mean of a
+weak predictor, and the distribution of the pose energies around the minimum carries no
+affinity signal beyond the minimum and the ligand size.
 
 ![affinity headline figure](../data/figures/affinity/headline_scatter.png)
 
@@ -163,6 +166,7 @@ uv run python -m affinity.train                 # feature cache + the default gr
 uv run python -m affinity.train --pool all      # all ten pools (adds the crystal-receptor and the std runs)
 uv run python -m affinity.train --loss l1 --terms all   # a smaller grid
 uv run python -m affinity.report                # tables + figures -> data/figures/affinity/
+uv run python -m affinity.diagnostics           # §8: decile table + pose-energy-distribution statistics -> diagnostics.md
 ```
 
 `affinity.train` writes `data/affinity/{features.parquet, labels.csv, baseline_all.csv,
@@ -458,7 +462,8 @@ worth 0.28 kcal/mol of binding free energy on average:
   the best pose in MAE (1.51–1.52 vs 1.49); the std runs change nothing. On all complexes without a
   split the filtered mean over the near-native ensemble of the std runs has the highest Pearson r
   (0.47 vs 0.45 for the best pose) — the only hint that an ensemble average carries information
-  the single best pose does not, the question of A.3 step 2.
+  the single best pose does not, the question of A.3 step 2. The direct test of the distribution
+  hypothesis (§8.2) is negative on these samples.
 - **Label sets.** Ki labels are harder than Kd (constant 1.64 vs 1.47 pK) and the models gain
   the same 0.03–0.04 on both halves; IC50 has the tightest distribution (constant 1.24) and the
   largest gain of the calibrated score over the constant (−0.13), with size again equal to the
@@ -469,3 +474,103 @@ worth 0.28 kcal/mol of binding free energy on average:
   calibration sets smaller (103 / 513); the split decides the number, so cross-paper comparisons
   need the same split; the size baseline is a property of PDBbind (S7 to-do); no clustering, no
   ensemble estimator (A.3 step 2 open).
+
+## 8. Diagnostics (2026-10-22): the missed tails, and the pose-energy distribution as a signal
+
+Source: `affinity.diagnostics` → `data/figures/affinity/diagnostics.md` and
+`data/affinity/shape_statistics.parquet` (`uv run python -m affinity.diagnostics`). Two
+questions raised by the headline figures: why is no complex predicted below pK 4, and does the
+*distribution* of the pose energies, rather than their minimum, carry the affinity signal — the
+hypothesis being that strong binders populate their top basin densely while weak binders sample
+a flatter, worse region?
+
+### 8.1 The missed tails are regression to the mean
+
+Headline cell (Kd + Ki, `apo_relax` · `perturb`, best pose, LP-PDBBind test complexes, l1 fits);
+`sd_ratio` = sd(prediction) / sd(label), `slope_pred_on_label` the least-squares slope of the
+prediction on the label (≈ r² for a linear predictor), deciles of the experimental pK:
+
+| predictor | sd_label | sd_pred | sd_ratio | r | slope_pred_on_label | mean_pred_lowest_decile | mean_pred_highest_decile | mae_lowest_decile | mae_middle_deciles | mae_highest_decile | n | label_q10 | label_q90 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| constant | 1.85 | 0.00 | 0.00 | nan | nan | 6.10 | 6.10 | 3.05 | 0.66 | 3.37 | 1874 | 3.91 | 8.74 |
+| unmodified | 1.85 | 0.91 | 0.49 | 0.31 | 0.15 | 5.48 | 6.62 | 2.43 | 0.91 | 2.86 | 1874 | 3.91 | 8.74 |
+| reweight | 1.85 | 0.98 | 0.53 | 0.37 | 0.20 | 5.19 | 6.72 | 2.15 | 0.94 | 2.78 | 1874 | 3.91 | 8.74 |
+| size | 1.85 | 0.84 | 0.45 | 0.42 | 0.19 | 5.07 | 6.44 | 2.02 | 0.93 | 3.03 | 1874 | 3.91 | 8.74 |
+| reweight_size | 1.85 | 1.04 | 0.56 | 0.43 | 0.24 | 4.84 | 6.64 | 1.79 | 1.00 | 2.84 | 1874 | 3.91 | 8.74 |
+
+The predictions spread 45–56 % as much as the labels and move 0.15–0.24 pK per pK of label.
+The lowest decile (pK < 3.9) is predicted at 4.8–5.5, the highest (pK > 8.7) at 6.4–6.7; the
+MAE is 1.8–2.4 and 2.8–3.0 pK in the tails against 0.9–1.0 in the four middle deciles, where
+the constant predictor itself reaches 0.66. A prediction below pK 4 would need an input two
+standard deviations beyond the typical one, and mM binders do not produce such a best-pose
+energy: their minimum interface delta lies in the same range as that of µM binders. No
+calibration or loss change moves this; a slope of 0.6 needs r ≈ 0.8. The size model has the
+best lowest-decile MAE (1.79 with the terms), so the mM tail is to a large part a small-ligand
+tail.
+
+### 8.2 The pose-energy distribution carries no signal beyond the minimum and the size
+
+Per docking run of `apo_relax` · `perturb` (6,708 labelled complete complexes, no split):
+`e_min` the best interface delta, `e_10` / `e_med` the 10th-best / median pose, `gap10` /
+`gap_med` their distance to the minimum, `n_within2` / `n_within5` the poses within 2 / 5 REU of
+the minimum, `hit_frac` the share of poses within 2 Å of the crystal ligand, `F_kT1` / `F_kT3`
+the log-sum-exp free energy −kT log Σ exp(−E/kT) at kT = 1 / 3 REU (Paper 2's estimator S1),
+`S_kT1` / `S_kT3` = F − e_min (≤ 0; closer to 0 = fewer poses near the minimum). Spearman ρ
+with pK, with the heavy-atom count, and partial ρ with pK after regressing both on the
+heavy-atom count, and on the heavy-atom count and `e_min`:
+
+| statistic | rho_pk | rho_heavy_atoms | partial_rho_pk_given_heavy | partial_rho_pk_given_heavy_and_e_min |
+|---|---|---|---|---|
+| e_min | -0.425 | -0.407 | -0.284 | -0.003 |
+| e_10 | -0.333 | -0.261 | -0.245 | -0.011 |
+| e_med | -0.132 | -0.074 | -0.117 | 0.036 |
+| gap10 | 0.308 | 0.389 | 0.153 | -0.011 |
+| gap_med | 0.399 | 0.413 | 0.252 | 0.036 |
+| n_within2 | -0.245 | -0.318 | -0.114 | -0.026 |
+| n_within5 | -0.372 | -0.412 | -0.216 | -0.070 |
+| hit_frac | -0.107 | -0.562 | 0.130 | 0.033 |
+| F_kT1 | -0.407 | -0.372 | -0.276 | 0.027 |
+| F_kT3 | -0.313 | -0.259 | -0.218 | 0.042 |
+| S_kT1 | 0.293 | 0.361 | 0.158 | 0.027 |
+| S_kT3 | 0.391 | 0.423 | 0.244 | 0.042 |
+| n_heavy | 0.453 | 1.000 | -0.020 | 0.013 |
+
+Medians for weak (pK < 5) and strong (pK > 8) binders within quintiles of `e_min` — the matched
+comparison:
+
+| e_min_bin | n_weak | n_strong | gap10_weak | gap10_strong | n_within2_weak | n_within2_strong | hit_frac_weak | hit_frac_strong | S_kT3_weak | S_kT3_strong |
+|---|---|---|---|---|---|---|---|---|---|---|
+| -36 … -18 REU | 75 | 554 | 5.00 | 7.09 | 3.00 | 3.00 | 0.05 | 0.02 | -6.68 | -5.75 |
+| -18 … -15 REU | 221 | 329 | 3.72 | 3.87 | 4.00 | 4.00 | 0.05 | 0.02 | -9.21 | -8.68 |
+| -15 … -12 REU | 377 | 201 | 2.51 | 2.75 | 6.00 | 5.00 | 0.04 | 0.02 | -10.67 | -9.94 |
+| -12 … -10 REU | 498 | 151 | 2.08 | 2.28 | 9.00 | 8.00 | 0.04 | 0.01 | -11.55 | -11.25 |
+| -10 … -0 REU | 629 | 100 | 1.71 | 1.97 | 13.00 | 10.00 | 0.02 | 0.02 | -12.34 | -11.95 |
+
+Every statistic correlates with pK at |ρ| 0.1–0.4, but as strongly with the heavy-atom count,
+and after conditioning on the heavy-atom count and the minimum energy the partial correlations
+lie within ±0.07. The signs are the opposite of the hypothesis: strong binders have *larger*
+gaps between their best pose and the rest and *fewer* poses within 2–5 REU of the minimum,
+because the whole distribution scales with the magnitude of the energies — a scale effect of
+`e_min` and the size, not an independent signal. At matched `e_min`, weak and strong binders
+have the same gap, the same number of poses near the minimum and the same entropy-like term,
+and the strong ones have a lower hit fraction (0.02 vs 0.04–0.05: they are the large ligands
+that `apo_relax` · `perturb` re-docks less often). The log-sum-exp free energies track `e_min`
+(partial ρ 0.03–0.04).
+
+### 8.3 Consequences for A.3 step 2
+
+The hypothesis is not refuted, but these samples cannot test it, and step 2 would reproduce
+this null result with more machinery unless it changes three things:
+
+- **The samples are catchment, not population.** A 5 Å perturbation followed by full
+  minimisation returns which basin a start falls into (the initialisation dependence of S3),
+  not how often a thermal ensemble visits it. Populations from this sampler measure the
+  funnel's catchment in start space. Step 2 needs an unbiased or thermal sampler (Appendix B run
+  A, Paper 2's C2) or the sampler-bias correction of its own specification.
+- **Energy-space spread is the wrong coordinate.** A deep wide basin and a deep narrow one look
+  alike in a histogram of 300 energies. The width is geometric — the RMSD or torsion spread of the
+  poses that sit near the minimum — and needs pairwise ligand RMSDs per run (what the deleted
+  cluster cache held; recomputable with `docking.ligand_rmsd`).
+- **Every spread statistic scales with |e_min| and the ligand size.** Step 2 must normalise per
+  complex (z-scored energies as in the degeneracy analysis) or condition on the minimum and the
+  size, and report the partial gain, not the raw correlation.
