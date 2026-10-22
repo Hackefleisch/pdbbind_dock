@@ -3,7 +3,7 @@
 Re-dock protein–ligand complexes with **PyRosetta** (RosettaLigand), record every pose
 together with its decomposed Rosetta energy terms, and evaluate RosettaLigand at scale:
 how well it *samples* near-native poses, how well its score *ranks* them, and how the
-energy terms relate to binding affinity (log *K*d).
+energy terms relate to binding affinity (pK from the exact *K*d / *K*i values).
 
 Benchmarks: PDBbind v2020 (11,460 docked complexes), the PoseBusters benchmark set
 (428) and the Astex Diverse set (85). Per complex: 1 crystal pose, 10 FastRelax seeds
@@ -46,8 +46,8 @@ docking_analysis/    Phase 2, Track 1 — extraction + benchmark success tables
   splits.csv         PDBbind split annotations (PLINDER, HAC, CleanSplit, LP-PDBBind)
 ranking/             Phase 2, Track 2 — ranking approaches (non-negative reweighting, tree,
                      Luca Friebe's MLP ranker) vs. the unmodified interface delta
-affinity/            Phase 2, Track 3 — energy terms vs. affinity (legacy grid, kept as
-                     documentation of what was done; not runnable, to be rewritten)
+affinity/            Phase 2, Track 3 — interface delta vs. affinity: pose pools, per-complex
+                     aggregations, linear reweighting, bootstrap intervals on the three splits
 scripts/             run_*.slurm (cluster launchers), filter_pdbbind.py, h5_size.py
 docs/                dataset preparation, paper planning documents
 data/                all inputs, docking outputs, extractions, figures (git-ignored)
@@ -213,18 +213,30 @@ uv run python -m ranking.report                                   # tables of al
 
 Each run writes `results.md/json`, the per-run table, the model and the preprocessing to
 `data/ranking/<approach>_<split>/`; the report collects every run into
-`data/figures/ranking/ranking_tables.md` (one row per approach, one column per k).
-**TODO:** the energy-degeneracy analysis and the per-complex oracle probe (inventory
-Appendix A.1/A.2).
+`data/figures/ranking/ranking_tables.md` (one row per approach, one column per k). Why the
+ranking resists repair — the energy-degeneracy analysis and the per-complex oracle (inventory
+Appendix A.1/A.2) — is `ranking.degeneracy` + `ranking.degeneracy_report`, documented in
+[docs/degeneracy.md](docs/degeneracy.md).
 
-### 3.3 Track 3 — energy terms vs. affinity (`affinity/`)
+### 3.3 Track 3 — interface delta vs. affinity (`affinity/`)
 
-The package holds the first implementation (aggregation × term-selection grid with a
-non-negative linear reweighting against exact Kd) as documentation of what was done. It
-is not runnable: its inputs were intermediate zip bundles that no longer exist. **TODO:**
-rewrite on the parquet extraction with Ki labels, a leakage-aware split (see
-`docking_analysis/splits.csv`), bootstrap confidence intervals and symmetry-corrected
-RMSD in the clustering.
+How well does the Rosetta interface delta of the docked poses track the experimental affinity,
+and how much does a linear reweighting of its seven interface terms add? Labels are the pK of
+the exact Kd and Ki values of the PDBbind index (IC50 reported separately); the poses of a
+complex are aggregated per pool (one docking run, the perturb + std runs of a receptor state,
+the relaxed holo complex, the crystal complex) and aggregation (best pose, mean of the 10 best,
+filtered mean, best hit as oracle); the calibrated interface delta, the ligand heavy-atom count
+and three least-squares reweightings are compared by Pearson r with bootstrap intervals on the
+test complexes of the three splits of Track 2 and on the CASF-2016 core set. Methods and
+results: [docs/affinity.md](docs/affinity.md).
+
+```bash
+uv run python -m affinity.train                 # feature cache + the grid, ~10 min
+uv run python -m affinity.report                # tables and figures
+```
+
+Outputs: `data/affinity/` (feature cache, `results.csv`, weights, per-complex predictions) and
+`data/figures/affinity/affinity_tables.md` with the figures.
 
 ## Open TODOs
 
@@ -232,7 +244,7 @@ RMSD in the clustering.
 - Distribution of the exact PyRosetta build 2025.47 (section 1.2).
 - Exact PDBbind package name, download date and citation; ship the docked-set `index.txt`.
 - Wall-time distribution per complex (section 2.2).
-- Track 1 figures, Track 2 degeneracy and oracle analyses, Track 3 rewrite (section 3).
+- Track 1 figures (section 3); Appendix A.3 step 2 of the affinity track (open decision).
 
 See [CLAUDE.md](CLAUDE.md) for the developer-level documentation and
 [docs/](docs/README.md) for the paper planning documents.

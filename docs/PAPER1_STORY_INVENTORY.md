@@ -31,13 +31,12 @@ Per complex: 1 crystal row + 10 bound-relax seeds + 10 ligand-away-relax seeds (
 Totals: ≈ 20.6 M PDBbind poses, 0.70 M PoseBusters, 0.15 M Astex.
 
 Affinity labels among the 11,460 docked PDBbind complexes (exact `=` values only):
-Kd 3,586 · Ki 3,135 · IC50 4,582. The legacy affinity grid (`KD_RE` in `constants.py`) kept
-**exact Kd only → 3,579 complexes** (relax + apo_relax Perturb poses with non-positive scores;
-1.88 M rows); its zip inputs and cluster cache were deleted on 2026-10-19 and the grid is to be
-rewritten on the full extraction. Adding exact Ki gives 6,721 complexes. CASF-2016 core set:
-290 ids (`hacsplit == "test"` in `docking_analysis/splits.csv`), 276 docked, 107 inside the
-exact-Kd subset. `splits.csv` also carries the PLINDER, CleanSplit and LP-PDBBind assignments
-for 19,443 PDBbind ids (input for the leakage-aware split decision, §4).
+Kd 3,586 · Ki 3,135 · IC50 4,582; among the 11,444 complete ones Kd 3,579 · Ki 3,129 · IC50 4,579,
+i.e. **Kd + Ki = 6,708 complexes**, the headline label set of T3 (`affinity.data.load_labels`;
+the legacy grid had used exact Kd only). CASF-2016 core set: 290 ids (`hacsplit == "test"` in
+`docking_analysis/splits.csv`), 276 docked, 271 complete, all with an exact Kd or Ki.
+`splits.csv` also carries the PLINDER, CleanSplit and LP-PDBBind assignments for 19,443 PDBbind
+ids (the leakage-aware splits of S5 and S7, §4).
 
 ### 0.2 Protocol facts that must appear in Methods (verified in code)
 
@@ -89,13 +88,12 @@ for 19,443 PDBbind ids (input for the leakage-aware split decision, §4).
   commit `8bb54e8a6d` (GitHub tag `v2025.47-dev62202`); the conda channel `conda.graylab.jhu.edu`
   keeps every release, so `pyrosetta=2025.47` can be installed from there permanently. `uv run` /
   `uv add` work again. Added: scikit-learn, umap-learn, seaborn, statsmodels, pyarrow.
-- `data/figures/benchmark/` holds the success tables of §1. No affinity figure exists: the legacy
-  affinity grid (`affinity/`, driven by `affinity/extract_docking_stats.py`) lost its inputs on
-  2026-10-19, is kept as documentation only, and is to be rewritten on the full extraction, so every
-  T3 number is `[FROM REPO]`.
-- Code layout since 2026-10-19: one package per track — `docking_analysis/` (T1), `ranking/` (T2,
-  planned), `affinity/` (T3, legacy); the HDF5 reader no longer imports PyRosetta, so the analysis
-  tracks run without it.
+- `data/figures/benchmark/` holds the success tables of §1, `data/figures/ranking/` and
+  `data/figures/degeneracy/` the T2 tables and figures, `data/figures/affinity/` the T3 tables and
+  figures of `affinity.report` (2026-10-21).
+- Code layout since 2026-10-19: one package per track — `docking_analysis/` (T1), `ranking/` (T2),
+  `affinity/` (T3, rewritten 2026-10-21); the HDF5 reader no longer imports PyRosetta, so the
+  analysis tracks run without it.
 - `posebusters` 0.6.5 is a declared dependency (S4); scikit-learn and umap-learn are installed.
 - Links: docking pipeline `github.com/Hackefleisch/pdbbind_dock`; Luca's ML repo
   `github.com/lucafrb/rosettaligand-vs-posebuster` (§6.1); Overleaf draft
@@ -288,7 +286,7 @@ The paper is told as three tracks (story update of 2026-10-09), each with a lead
 |---|---|---|---|
 | **T1 — Benchmark** | How well does RosettaLigand work on PDBbind, PoseBusters and Astex? *Side aim:* by which mode does it sample near-crystal structures — when does it find the crystal basin at all? | Paul / Luca; side aim Josephine | S1, S2, S3, S4, S8 |
 | **T2 — Fix the ranking** | Can the failure mode (picking the right pose) be repaired? Reweighting + ML heads give mild improvements only; then *why?* — the energy-degeneracy analysis (Appendix A.1) and the per-complex oracle probe (A.2), with UMAP/t-SNE as illustration | Luca; analysis Paul | S5, S6 |
-| **T3 — Affinity** | Can score ↔ binding free energy be improved? Reweighting of the best pose first (prelim: small gain), then the sampled-density free energy with Bayesian uncertainty (A.3) | Paul / Felipe | S7 |
+| **T3 — Affinity** | Can score ↔ binding free energy be improved? Reweighting of the best pose (done: +0.06 in r, and the interface delta stays below the ligand-size baseline on LP-PDBBind), then the sampled-density free energy with Bayesian uncertainty (A.3 step 2, open) | Paul | S7 |
 
 The logic that links them: T1 establishes that the sampler works, T2 that the energies cannot tell
 right from wrong, and T3 turns both facts around — if the samples are physically plausible but the
@@ -492,21 +490,41 @@ resists → baseline affinity correlation → outlook (Paper 2).*
 
 #### S7 — Score vs affinity (T3)
 
-- **Claim.** Weak baseline correlation (r ≈ 0.4) of the minimum interface delta with log Kd;
-  best-pose reweighting adds a small gain.
-- **Can tell now:** nothing current. The legacy grid (`affinity/`: 3 aggregations × 4
-  term selections + clustered aggregation; default vs learned weights) defined the experiment, but its
-  inputs (exact-Kd zip, cluster cache for 3,579 complexes at 2 Å and 4 Å) were deleted on 2026-10-19
-  and it is to be rewritten on the full extraction; Felipe's 0.39 / 0.38 / 0.42 (min / mean-of-10 /
-  reweight) are `[FROM REPO]`. Known limits of the legacy implementation that the rewrite must lift:
-  exact Kd only (3,579), random 80/20 split, single seed, non-negative weights, MAE loss, no
-  confidence intervals, interface terms only, relax + apo_relax Perturb poses only, plain RMSD in the
-  clustering.
-- **To do:** rewrite the grid on `docked.parquet` (corrected totals and RMSDs); extend labels to Ki
-  (6,721 complexes) with IC50 reported separately; bootstrap CIs; the leakage-aware split shared with
-  S5; CASF-2016 core as external test (276 docked); with and without Standard poses. Appendix A.3
-  step 2 (sampled-density free energy with Bayesian error bars) is new code and still an open
-  Paper 1 / Paper 2 boundary decision; do not start it before that is settled.
+- **Claim (revised 2026-10-21 after the computation).** The interface delta of the best-scoring
+  pose is a weak predictor of affinity and, on a leakage-controlled split, a worse one than the
+  ligand's heavy-atom count; reweighting its seven terms adds about +0.06 in Pearson r and does
+  not close that gap. The limit is the scoring function, not the pose: the correct pose and the
+  relaxed holo complex correlate no better than the best-scoring docked pose.
+- **Setup decided 2026-10-21** (implemented in `affinity/`, documented with the results in
+  [affinity.md](affinity.md); the legacy grid is in the git history): labels = pK of the exact
+  Kd + Ki values (6,708 complete complexes), IC50 separately (4,579); the same three splits as S5
+  (LP-PDBBind headline, HAC = CASF-2016 core as test, CleanSplit; train + val pooled for training,
+  the models are least squares with nothing to select) plus the CASF core complexes outside each
+  training set as external test; pools = one docking run / perturb + std of a receptor state /
+  relaxed holo complex / crystal complex; aggregations best (headline), mean of 10, filtered mean,
+  best-hit oracle; approaches = calibrated interface delta (reference), ligand heavy-atom count,
+  free-sign and non-negative least-squares reweighting, reweighting + size; Pearson r with
+  bootstrap intervals and the paired Δr. Headline cell: Kd + Ki · apo_relax · perturb · best pose ·
+  LP-PDBBind test complexes.
+- **Numbers** (LP-PDBBind test, n = 1,874, Kd + Ki; [affinity.md](affinity.md) §6): unmodified
+  r = 0.308 [0.270, 0.346]; ligand size 0.418 [0.380, 0.457]; reweighted 0.373 (+0.065 [+0.046,
+  +0.085]); non-negative 0.372; reweighted + size 0.425 (+0.007 over the size alone). relax ·
+  perturb best pose 0.331; best-hit oracle 0.280; relaxed holo complex 0.277 (reweighted 0.396);
+  unrelaxed crystal complex −0.107 (clashes; reweighted 0.408). CASF-2016 core (HAC test, n =
+  271): 0.520 / 0.535 / 0.624 / 0.629. All 6,708 labelled complexes without a split: unmodified
+  0.43–0.45 for every best-pose pool (Kd only 0.36–0.39 = the legacy r ≈ 0.39 recomputed). IC50
+  (LP-PDBBind, n = 1,669): 0.419 / 0.514 / 0.471 / 0.544. Learned non-negative weights (fa_atr =
+  0.8): fa_rep 0, fa_sol 0.28, fa_elec 0.18, fa_pair 0, hbond_bb_sc 0.41, hbond_sc 0.35, the same
+  on the three splits up to ±0.1 (HAC and CleanSplit drop one H-bond term).
+- **Caveats:** Pearson r on pK with PDBbind's label noise; the split decides the number (0.31 on
+  LP-PDBBind vs 0.52 on the CASF core, whose protein families are in the training set); HAC and
+  CleanSplit test sets are small (271 / 151); Ki correlates with size far more than Kd (0.48 vs
+  0.36); no clustering, no ensemble estimator.
+- **To do:** Appendix A.3 step 2 (sampled-density free energy with Bayesian error bars) is new
+  code and an open Paper 1 / Paper 2 boundary decision (§4 item 4); the filtered mean over the
+  near-native ensemble of the std runs reaching 0.47 against 0.45 for the best pose (all
+  complexes, no split) is the only hint in the data so far. Literature `[CITE]`: the CASF-2016
+  scoring-power numbers of classical functions for the 0.52 comparison.
 
 ### Cross-cutting
 
@@ -553,8 +571,10 @@ quotes them by accident; every one of them is superseded by §1 or must be recom
   internal 24, header 3, unreadable SDF 2, unusual energy term 5, unfinished 6) cannot be verified
   from the 57 failed logs in `data/failed_logs/` (IndexError 19, OSError 8, Rosetta 24, KeyError 5,
   1 unknown); PoseBusters 388 complete vs 390 expected `[VERIFY]`.
-- Felipe's affinity correlations (r ≈ 0.392 min, 0.376 mean-of-10, 0.418 reweight) were computed on
-  the legacy data `[FROM REPO]` (S7).
+- The legacy affinity grid's correlations (r ≈ 0.392 min, 0.376 mean-of-10, 0.418 reweight) were
+  computed on the legacy data (exact Kd, random split, uncorrected scores); superseded by
+  [affinity.md](affinity.md) (S7): on exact Kd the best-pose r is 0.36–0.39 on all complexes and
+  0.30 on the LP-PDBBind test complexes.
 
 ## 4. Decisions that gate the code work
 
@@ -568,9 +588,10 @@ quotes them by accident; every one of them is superseded by §1 or must be recom
 3. Leakage-aware split definition (shared by S5 and S7). **Decided for S5 on 2026-10-20:** all three
    non-random splits of `splits.csv` are reported (LP-PDBBind, HAC = CASF-2016 core as test,
    CleanSplit); the Astex entries that are PDBbind complexes (43 of 84) are excluded from training in
-   every split. Open for S7.
+   every split. **Adopted for S7 on 2026-10-21:** the same three splits, train + val pooled for the
+   least-squares fits, the CASF core complexes outside each training set as external test.
 4. Paper 1 / Paper 2 boundary for Appendix A.3 step 2.
-5. Labels for T3: Kd + Ki headline, IC50 separate.
+5. Labels for T3: Kd + Ki headline, IC50 separate — implemented 2026-10-21 (exact values only).
 6. Symmetry-corrected RMSD: done (auto-corrected on access, stored values kept as legacy).
 
 ## 5. Suggested order of work
@@ -580,7 +601,8 @@ quotes them by accident; every one of them is superseded by §1 or must be recom
    density).
 2. ~~Appendix A.1 + A.2 (S6) on Perturb poses.~~ Done 2026-10-21 ([degeneracy.md](degeneracy.md)).
 3. PoseBusters validity on Top-1 / best poses (S4).
-4. Rewrite the affinity grid on the full extraction; Ki extension; bootstrap CIs (S7).
+4. ~~Rewrite the affinity grid on the full extraction; Ki extension; bootstrap CIs (S7).~~ Done
+   2026-10-21 ([affinity.md](affinity.md)).
 5. *Done (2026-10-20):* the four ranking approaches on the decided setup (S5, `ranking/`,
    [ranking.md](ranking.md)).
 6. Josephine's re-plots + dataset-wide proxies (S3).
@@ -767,9 +789,11 @@ and the ranker head of `ranking/`.
 
 ### A.3 Affinity track — from best-pose reweighting to a sampled-density free energy (T3, S7)
 
-**Step 1 (have prelim data).** Fit a reweighting of the terms on the lowest-energy pose per
-complex against the reported affinity. Expect a modest gain over the default score
-`[FROM REPO]` refresh the number. Report it as the baseline, with the leakage-aware split.
+**Step 1 — done 2026-10-21** (`affinity/`, [affinity.md](affinity.md), S7). A least-squares
+reweighting of the seven interface terms of the lowest-interface-delta pose gains +0.065 in
+Pearson r over the calibrated interface delta on the LP-PDBBind test complexes (0.31 → 0.37,
+Kd + Ki) and stays below the ligand heavy-atom count (0.42); the correct pose and the relaxed
+holo complex do no better. This is the baseline that step 2 has to beat.
 
 **Step 2 (the idea).** T1 and T2 together say: the sampler produces physically plausible poses and
 concentrates them where its own energy is low, but the energies of individual poses do not
@@ -831,8 +855,8 @@ Not needed for Paper 1: unconstrained relaxation and thermal basin sampling (Pap
       *"Physics-based protein–ligand docking at scale: RosettaLigand samples near-native poses but
       cannot reliably rank them"*.
 - [ ] Author order and contribution statement (Luca: thesis, benchmark + ML scoring; Josephine:
-      starting-position analysis; Felipe: affinity/ensemble analysis; Paul: pipeline, ensemble
-      scoring, integration; Chris, Rocco, Jens).
+      starting-position analysis; Paul: pipeline, affinity track, ensemble scoring, integration;
+      Chris, Rocco, Jens).
 - [ ] Target journal: JCIM / JCTC.
 - [ ] How much of the lab's own RosettaLigand work to cite up front (idea-3 brief: a lot) `[CITE]`;
       the PoseBusters paper's baseline numbers and their exact conditions `[CITE]`.

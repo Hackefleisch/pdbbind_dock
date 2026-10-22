@@ -7,7 +7,7 @@ Guidance for Claude Code working in this repository.
 Re-docks protein–ligand complexes with **PyRosetta**, stores every pose +
 its decomposed Rosetta energy terms, then evaluates RosettaLigand's sampling and
 ranking (success-rate tables) and trains a **linear reweighting model** that maps
-the energy terms to binding affinity (log Kd). Benchmarks used: PDBbind v2020,
+the energy terms to binding affinity (pK from the exact Kd / Ki values). Benchmarks used: PDBbind v2020,
 the PoseBusters benchmark set, and the Astex Diverse set.
 
 Two distinct phases, and the analysis phase follows the three tracks of the paper
@@ -23,8 +23,9 @@ Two distinct phases, and the analysis phase follows the three tracks of the pape
      against the unmodified interface delta, with the Success@k evaluation (S5); the
      energy-degeneracy analysis and the per-complex oracle with its figures, example
      complexes and UMAP/t-SNE illustration (S6).
-   - `affinity/` — **Track 3, affinity**: the legacy reweighting grid, kept as
-     documentation only (not runnable, to be rewritten).
+   - `affinity/` — **Track 3, affinity**: the interface delta and its linear reweighting against
+     the experimental affinity (S7): label sets, pose pools, per-complex aggregations, bootstrap
+     evaluation on the three splits of S5.
 
 ## Repository layout
 
@@ -48,9 +49,11 @@ ranking/                 Track 2 — ranking approaches vs. the unmodified inter
   train.py, report.py    CLIs: one approach x 3 splits -> data/ranking/<approach>_<split>/; tables -> data/figures/ranking/
   degeneracy.py          S6: per-run energy degeneracy (A.1) + per-run oracle (A.2) -> data/ranking/degeneracy[_total]/
   degeneracy_report.py   S6 figures, oracle-vs-approaches gap, example complexes, UMAP/t-SNE -> data/figures/degeneracy/
-affinity/                Track 3 — legacy reweighting grid, documentation only
-  constants.py           paths of its (deleted) inputs, Kd regex, zero-variance terms
-  data.py, experiment.py, reweighting.py, figures.py, clustering.py, extract_docking_stats.py
+affinity/                Track 3 — score vs. affinity (S7): the interface delta and its reweighting against pK
+  data.py                labels from the PDBbind index, pose pools, per-complex aggregations, feature cache; split from ranking.data
+  models.py              calibrated interface delta, ligand size, free-sign / non-negative reweighting (+ size), all least squares
+  evaluate.py            Pearson r, Spearman ρ, RMSE with bootstrap CIs and the paired Δ to the calibrated interface delta
+  train.py, report.py    CLIs: the grid label set x split x pool x aggregation -> data/affinity/; tables + figures -> data/figures/affinity/
 scripts/                 run_*.slurm, filter_pdbbind.py, h5_size.py
 docs/                    methods-level documentation and the paper planning documents
 data/                    ALL inputs, docking outputs, caches, figures — git-ignored
@@ -168,19 +171,48 @@ complexes are removed from train/val. Thesis-era numbers and the random split ar
   summary `headline.png` (`--headline-only` writes just that), and `degeneracy_tables.md` under
   `data/figures/degeneracy/`.
 
-### Track 3 — `affinity/` (legacy, documentation only)
+### Track 3 — `affinity/` (score vs. affinity, S7 = Appendix A.3 step 1)
 
-The first implementation of the affinity track: `extract_docking_stats.py` drove a grid of
-per-complex aggregations × energy-term selections (`experiment.py`), trained a non-negative
-linear reweighting against log Kd (`reweighting.py`), clustered poses by RMSD
-(`clustering.py`) and drew the figures (`figures.py`); `data.py` read the zip bundles and
-parsed the Kd index; `constants.py` holds its paths, the Kd regex and the zero-variance
-terms. **It is not runnable**: its inputs (exact-Kd zip, cluster cache) were deleted on
-2026-10-19. The files stay unchanged as the record of what was done and of the limitations
-the rewrite must lift (inventory S7); the rewrite will work on the parquet tables.
+Rewritten 2026-10-21 on the full extraction (the legacy grid of the zip era is in the git history
+before that date), documented with the results in [docs/affinity.md](docs/affinity.md). Question:
+how well does the interface delta of the docked poses track the experimental affinity, and how
+much does a linear reweighting of the seven interface terms add? Setup: labels = pK of the
+**exact** Kd / Ki values of the PDBbind index (headline `kdki`, 6,708 complete complexes; IC50
+separately, 4,579); the **same three splits as S5** (LP-PDBBind headline, HAC = CASF-2016 core as
+test, CleanSplit), training complexes = train + val (the models are least squares, nothing to
+select), plus the CASF core complexes outside each split's training set as external test;
+**pools** = which poses are aggregated (one docking run, the perturb + std runs of a state, the
+relaxed holo complex `relax_ref`, the unrelaxed `crystal` complex); **aggregations** `best`
+(lowest interface delta, the headline), `mean10`, `mean` (over poses with interface delta ≤ 0),
+`best_hit` (oracle); **approaches** = calibrated interface delta (reference), ligand heavy-atom
+count, free-sign reweighting, non-negative reweighting (a Rosetta weight set), reweighting + size;
+**metrics** Pearson r (CASF scoring power), Spearman ρ, RMSE in pK with percentile-bootstrap 95 %
+intervals over complexes and the paired Δr to the reference. Headline cell: Kd + Ki,
+`apo_relax_docking_perturb`, best pose, LP-PDBBind test complexes.
+
+- `data.py` — `load_labels` (index parser; relation `=` only is exact), `RUN_POOLS` / `SEED_POOLS`,
+  `aggregate`, `build_features` / `load_features` (cache `data/affinity/features.parquet`, ~40 s),
+  `complex_info`, `casf_core_ids`; the split comes from `ranking.data.assign_split`. For the seed
+  pools the interface delta is recomputed from the terms (the stored seed value is corrupt for
+  five relax seeds and one crystal row).
+- `models.py` — `Linear` (pK = X·coef + b), `fit_ols`, `fit_nnls` (non-negative on centred data),
+  `APPROACH_FEATURES`; energy weights = −coef, normalised to fa_atr = 0.8 for the `.wts` file.
+- `evaluate.py` — `evaluate(y, preds)`: metrics + bootstrap intervals + paired Δ on the same
+  resamples; `approach_table_markdown`.
+- `train.py` — `uv run python -m affinity.train [--labels kdki ic50] [--split all] [--pool ...|all]
+  [--aggregation ...]`: builds the feature cache if missing, writes `baseline_all.csv` (the unmodified
+  score on all labelled complexes, no split), then the grid → `data/affinity/{results.csv, weights.csv,
+  weights_nonneg_<split>.wts, predictions.parquet, results.json, results.md, train.log}` (~10 min).
+- `report.py` — `uv run python -m affinity.report`: `data/figures/affinity/affinity_tables.md`
+  (eight tables), `affinity_results.csv`, `headline_scatter.png`, `pools.png`, `weights.png`.
+- Not implemented by decision: Appendix A.3 step 2 (sampled-density free energy) and the RMSD
+  clustering of the legacy grid.
+- Result (2026-10-21, headline cell): unmodified r = 0.31, ligand size 0.42, reweighted 0.37,
+  reweighted + size 0.43; the best hit and the relaxed holo complex do no better than the best
+  pose; the non-negative weights switch fa_rep and fa_pair off on every split.
 
 - [docking/result.py](docking/result.py) — `Result` / `PDBRinterface`: the H5
-  reader used by the extraction (and by the legacy `affinity.clustering`). **Auto-corrects
+  reader used by the extraction. **Auto-corrects
   `total_score`, `rmsd_to_crystal`, `rmsd_to_input` by default** (see "Legacy semantics").
   It does **not** import PyRosetta (it carries its own copy of `mol_result`), so the whole
   analysis runs without PyRosetta.
@@ -229,8 +261,9 @@ SLURM scripts expect the same names under `$WORKSPACE/data/`.
 | `docking_stats/<set>_full/` | 3.2 G | **Full-set parquet tables** from `docking_analysis.extract` — the data the analyses must use. |
 | `ranking/<run>/` | small | Track 2 runs written by `ranking.train`: model, scaler, per-run tables, `results.json/.md`, `train.log`. |
 | `ranking/degeneracy/`, `ranking/degeneracy_total/` | 530 M each | S6 tables of `ranking.degeneracy` (interface-delta terms / raw totals): `runs.parquet`, `poses.parquet` (one row per pose of every perturb run with a hit), `summary.{csv,md}`. |
+| `affinity/` | 27 M | Track 3 (`affinity.train`): `features.parquet` (per complex × pool × aggregation: the aggregated terms, interface delta, RMSD), `labels.csv`, `baseline_all.csv`, `results.csv`, `weights.csv` + `.wts`, `predictions.parquet`, `results.{json,md}`, `train.log`. |
 | `failed_logs/` | 472 K | SLURM `.out`/`.err` of the 57 docking tasks that failed on the cluster; source of `docking_analysis/failed_pdb_ids/`. |
-| `figures/` | — | Generated figures and tables: `benchmark/` (Track 1), `ranking/` (Track 2 report), `degeneracy/` (S6 figures, examples, embeddings, `degeneracy_tables.md`); regenerated, safe to clear. |
+| `figures/` | — | Generated figures and tables: `benchmark/` (Track 1), `ranking/` (Track 2 report), `degeneracy/` (S6 figures, examples, embeddings, `degeneracy_tables.md`), `affinity/` (Track 3 tables + figures); regenerated, safe to clear. |
 | `h5_test/` | — | Output of the local smoke test (`python -m docking.runner`); absent unless it was run. |
 
 The legacy zip bundles, the cluster cache and the Nov-2025 summary CSV were deleted on
@@ -269,11 +302,10 @@ tracked reference data lives inside `docking_analysis/` (see "Phase 2").
   constraint-free totals and symmetry-corrected in-place RMSDs, with the stored values kept as
   `*_legacy`. Do not "fix" `runner.py` or the XMLs for this: the data will not be re-docked.
 - **Analyses run on the full extraction** (`data/docking_stats/<set>_full/`). The older
-  partial zips and the cluster cache no longer exist; the `affinity/` package that read
-  them is documentation only and is to be rewritten on the parquet tables, not patched.
-- **One package per track.** New Track 2 code goes to `ranking/`, the rewritten Track 3
-  to `affinity/` (replace, do not extend, the legacy modules); shared paths stay in
-  `docking_analysis/constants.py`.
+  partial zips and the cluster cache no longer exist; every track reads the parquet tables.
+- **One package per track.** New Track 2 code goes to `ranking/`, Track 3 code to `affinity/`;
+  shared paths stay in `docking_analysis/constants.py`; `affinity` imports the split and the
+  pose loader from `ranking.data`.
 - Large data dirs and outputs are git-ignored (see [.gitignore](.gitignore)).
   **Do not commit `.h5`, parquet, large `.csv`, or figures.** Only code, docs and the
   small package data in `docking_analysis/` are tracked.

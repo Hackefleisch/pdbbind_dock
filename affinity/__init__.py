@@ -1,28 +1,26 @@
 """
-affinity — Track 3: energy terms vs. binding affinity (LEGACY, documentation only)
-==================================================================================
+affinity — Track 3: Rosetta energy terms vs. binding affinity
+==============================================================
 
-This package holds the first implementation of the affinity track: a linear reweighting of
-the per-pose Rosetta interface terms (``raw_delta_*``) against log Kd, evaluated over a grid of
-per-complex aggregations (lowest pose, mean of the 10 lowest, mean of all poses, RMSD-cluster
-representatives) x energy-term selections (all terms, combined h-bond terms, without
-``fa_sol``/``fa_pair``, combined van der Waals), with default and learned weights.
-
-**It is not runnable any more and is kept only as documentation of what has been done.**
-Its inputs were the legacy zip bundles (exact-Kd subset of the relax/apo_relax Perturb poses,
-uncorrected RMSDs, totals including the constraint energy) and the cluster cache, all deleted on
-2026-10-19. The track will be rewritten on the full extraction
-(``data/docking_stats/<set>_full/``, see ``docking_analysis.extract``), with the limitations listed
-in ``docs/PAPER1_STORY_INVENTORY.md`` S7 lifted (Ki labels, leakage-aware split, bootstrap CIs,
-symmetry-corrected RMSD in the clustering, Standard poses in/out).
+The affinity question of Paper 1 (inventory S7 = Appendix A.3 step 1): how well does the Rosetta
+interface delta of the docked poses track the experimental affinity (pK = −log10 of the exact
+Kd, Ki or IC50 of the PDBbind index), and how much does a linear reweighting of its seven
+interface terms add? Everything runs on the full extraction (``data/docking_stats/pdbbind_full/``).
 
 Modules
 -------
-- constants             : paths of the deleted inputs, the Kd regex, unit conversions, zero-variance terms
-- data                  : Kd index parsing, zip loading, per-PDB aggregation (min / mean_n / filtered_mean / clustered)
-- experiment            : aggregation x term-selection configs, default-weight baseline, results matrix
-- reweighting           : bias-free, non-negative linear layer (PyTorch, L1 loss) on the aggregated terms
-- figures               : density scatters, predicted-vs-actual, learned-vs-default weight bars
-- clustering            : greedy RMSD clustering of poses per complex with a pickle cache
-- extract_docking_stats : the orchestrator that ran the whole grid
+- data      : labels from the PDBbind index, pose pools (docking runs, perturb + std, the relaxed
+              holo and the crystal complex), per-complex aggregations (best pose, mean of 10,
+              filtered mean, best-hit oracle), the cached feature table, the split (shared with S5)
+- models    : the linear approaches — calibrated interface delta, ligand size, free-sign and
+              non-negative reweighting of the raw terms, reweighting + size — all least squares
+- evaluate  : Pearson r / Spearman ρ / RMSE with bootstrap intervals and the paired Δ to the reference
+- train     : the grid (label set × split × pool × aggregation) -> ``data/affinity/``
+- report    : the tables and figures -> ``data/figures/affinity/``
+
+The first implementation (an aggregation × term-selection grid on the legacy zip bundles,
+exact Kd only, random split, MAE loss) was removed on 2026-10-21; it is in the git history
+before that date. This rewrite lifts its limitations listed in ``docs/PAPER1_STORY_INVENTORY.md``
+S7 (Ki labels, leakage-aware splits, bootstrap intervals, corrected RMSDs and totals, Standard
+poses in or out). Appendix A.3 step 2 (the sampled-density free energy) is not implemented.
 """

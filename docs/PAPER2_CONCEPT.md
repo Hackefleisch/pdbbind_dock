@@ -197,7 +197,7 @@ All are plugged into the same importance-weighted $Z$. Ranked from simplest to t
 |---|---|---|---|
 | S0 | min energy | none (current practice) | existing data |
 | S1 | LSE over raw poses | none; implicitly assumes uniform $q$ (known to hurt) | existing data |
-| S2 | LSE over clusters, cluster weight = population | catchment volume (Felipe's `n`, `ln(1+n)`) | existing data |
+| S2 | LSE over clusters, cluster weight = population | catchment volume (cluster population `n`, `ln(1+n)`) | existing data |
 | S3 | LSE over clusters, weight = basin width from intra-cluster spread | geometric width of the docked cluster | existing data |
 | S4 | LSE over clusters, width from thermal sampling | quasi-harmonic / fluctuation entropy | **needs C2** |
 | S5 | importance weights $1/\hat q(x)$ from a learned density model | the sampler's estimated density | Perturb runs now; **C3** for the clean version |
@@ -262,7 +262,7 @@ one ligand placement count as separate microstates (the legacy clustering in
 - **E3 — Temperature consistency** ($\beta_{\text{pose}}$ vs. $\beta_{\text{aff}}$), §2.4.
 - **E4 — Calibration:** reliability diagrams for $\max_i p_i$ vs. top-1 correctness and
   $p_\varnothing$ vs. docking failure, **without** post-hoc recalibration.
-- **E5 — Felipe's predictions:** (a) ensemble > minimum; (b) larger ensemble gain for open or
+- **E5 — Ensemble predictions:** (a) ensemble > minimum; (b) larger ensemble gain for open or
   shallow pockets than for deep ones (needs a pocket-openness descriptor `[TODO]`);
   (c) where ITC data exist, the ΔH / TΔS split against experiment `[VERIFY]` coverage.
 - **E6 — Ablations:** interface-only vs. total energy; with/without separated reference; raw
@@ -362,7 +362,7 @@ realistic.
 
 ## 12. Open decisions
 
-- [ ] Paper 1 / Paper 2 boundary agreed with co-authors (Josephine's section, Felipe's ensemble
+- [ ] Paper 1 / Paper 2 boundary agreed with co-authors (Josephine's section, the ensemble
       material moves here).
 - [ ] **Boundary moved on 2026-10-09:** Paper 1's story update gives it a third track (affinity),
       ending in a fitted-density free energy with Bayesian error bars — see
@@ -375,4 +375,4 @@ realistic.
 - [ ] Which leak-proof split to adopt.
 - [ ] Scope and budget for C1–C3 (subset first, or full PDBbind?).
 - [ ] Whether to include a DL generator (C4) and which one.
-- [ ] Author list and contributions (Paul, Felipe, Josephine, Luca, Rocco, Chris, Jens, …).
+- [ ] Author list and contributions (Paul, Josephine, Luca, Rocco, Chris, Jens, …).

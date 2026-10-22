@@ -1,383 +1,208 @@
 """
 affinity.data
----------------------
-Data loading, filtering, and per-PDB aggregation utilities.
+-------------
+Labels, per-complex pose aggregation and the split of the affinity question (Track 3,
+inventory S7), read from the full extraction (``<EXTRACT_DIR>/pdbbind_full/``).
 
-This module provides:
-- Kd index parsing from the PDBbind INDEX file
-- Docking data loading from the zipped CSV
-- Buzzword-based row filtering
-- Unified per-PDB aggregation (min, mean-of-N, filtered mean)
-- Kd column joining helper
-- raw_delta column discovery
+Labels (:func:`load_labels`)
+    the binding-data column of ``INDEX_general_PL.2020R1.lst`` parsed into the measure
+    (``Kd``, ``Ki``, ``IC50``), the relation (``=``, ``<``, ``<=``, ``>``, ``>=``, ``~``), the
+    value in mol/l and pK = −log10(value / M). Only **exact** values (relation ``=``) are used.
+    Label sets (``LABEL_SETS``): ``kdki`` — Kd and Ki pooled, the headline; ``ic50`` — reported
+    separately (assay-dependent); ``kd`` / ``ki`` — the two halves of the headline test set.
+Pools (``RUN_POOLS``, ``SEED_POOLS``)
+    which poses of a complex are aggregated into its feature vector: one docking run (complex ×
+    protocol, 300 poses), the perturb + std runs of one receptor state (600 poses: the "with
+    Standard poses" ablation), or one reference structure from ``seeds.parquet`` — ``crystal``
+    (the input complex as prepared, unrelaxed) and ``relax_ref`` (the relaxed holo complex the
+    docking started from, i.e. the native pose after FastRelax).
+Aggregations (``AGGREGATIONS``)
+    ``best``      the pose with the lowest interface delta — the pose a user would take;
+    ``mean10``    the mean of the terms over the 10 lowest-interface-delta poses;
+    ``mean``      the mean over the poses of the pool with a non-positive interface delta (the
+                  legacy grid's "filtered mean"; the plain mean is dominated by clashing poses);
+    ``best_hit``  oracle: the lowest-interface-delta pose among the hits (``rmsd_to_crystal`` ≤
+                  2 Å) — what the score would give if the pose were always right; complexes
+                  without a hit are absent.
+Features
+    the seven raw interface-delta terms of the aggregated pose (``FEATURE_COLS`` of
+    ``ranking.data``; ``idelta_score`` is their weighted sum with the default weights) and
+    ``ligand_n_heavy`` from ``complexes.parquet`` as the size reference. ``n_agg`` is the number
+    of poses the aggregation used. For the seed pools the interface delta is **recomputed** from
+    the seven terms with the default weights: the stored ``idelta_score`` of a few relax seeds is
+    corrupt (values down to −4.6e8 with sane terms, e.g. 2f5t, 3cr5), whereas for the docked
+    poses the stored value equals the weighted sum to 1e-4 (``ranking.md`` §1).
+Split
+    ``ranking.data.assign_split``: the three non-random PDBbind splits of S5 (LP-PDBBind, HAC with
+    the CASF-2016 core set as test, CleanSplit). The models have no hyper-parameters, so the
+    validation complexes join the training complexes. The CASF-2016 core complexes outside a
+    split's training set are the external test of that split (:func:`casf_core_ids`).
 """
 
-import io
+from __future__ import annotations
+
 import math
-import zipfile
+import re
 from pathlib import Path
 
 import pandas as pd
-from tqdm import tqdm
 
-from .constants import (
-    FILTERED_ZIP,
-    INDEX_PATH,
-    KD_RE,
-    UNIT_TO_MOLAR,
-    ZERO_VARIANCE_TERMS,
-    ZIP_PATH,
-)
-
+from docking_analysis.constants import AFFINITY_DIR, INDEX_PATH, SPLITS_PATH
+from ranking.data import (FEATURE_COLS, PROTOCOLS, SPLIT_SCHEMES, assign_split, extraction_dir, load_poses,  # noqa: F401
+                          rosetta_weights, term_name)
 
 # ---------------------------------------------------------------------------
-# Helper: read a zip entry into a BytesIO with a tqdm progress bar
+# labels
 # ---------------------------------------------------------------------------
-def _read_zip_entry_with_progress(
-    zip_path: Path,
-    desc: str = "Reading zip",
-) -> io.BytesIO:
-    """
-    Read the first CSV entry from *zip_path* into a :class:`~io.BytesIO`
-    buffer, showing a tqdm progress bar based on the uncompressed size.
-
-    Using an explicit chunked read avoids the problem where pandas' C CSV
-    parser bypasses Python-level file wrappers (which makes
-    ``tqdm.wrapattr`` appear stuck).
-    """
-    buf = io.BytesIO()
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        entry = zf.infolist()[0]
-        with zf.open(entry) as fh:
-            with tqdm(
-                total=entry.file_size,
-                desc=desc,
-                unit="B",
-                unit_scale=True,
-            ) as pbar:
-                while True:
-                    chunk = fh.read(1 << 20)  # 1 MB
-                    if not chunk:
-                        break
-                    buf.write(chunk)
-                    pbar.update(len(chunk))
-    buf.seek(0)
-    return buf
+KINDS = ("Kd", "Ki", "IC50")
+LABEL_SETS: dict[str, tuple[str, ...]] = {"kdki": ("Kd", "Ki"), "kd": ("Kd",), "ki": ("Ki",), "ic50": ("IC50",)}
+TRAIN_LABEL_SETS = ("kdki", "ic50")
+HEADLINE_LABELS = "kdki"
+LABEL_RE = re.compile(r"^(?P<kind>Kd|Ki|IC50)(?P<relation><=|>=|=|<|>|~)(?P<value>[0-9]*\.?[0-9]+)(?P<unit>[munpf]?M)$")
+UNIT_TO_MOLAR = {"M": 1.0, "mM": 1e-3, "uM": 1e-6, "nM": 1e-9, "pM": 1e-12, "fM": 1e-15}
 
 
-# ---------------------------------------------------------------------------
-# Kd index loader
-# ---------------------------------------------------------------------------
-def load_kd_index(index_path: Path = INDEX_PATH) -> pd.DataFrame:
-    """
-    Parse INDEX_general_PL.2020R1.lst and return a DataFrame with columns:
-      - pdb      : 4-char PDB ID (lower-case)
-      - kd_M     : Kd in Molar (float)
-      - log_kd   : log10(kd_M)
-
-    Only rows with an exact Kd= measurement are included; Ki, IC50, and
-    inequality values (Kd<, Kd<=, Kd~, …) are skipped.
-    """
-    records: list[dict] = []
-
-    with open(index_path, "r") as fh:
+def load_labels(index_path: Path | str = INDEX_PATH) -> pd.DataFrame:
+    """Every entry of the PDBbind index: ``pdb``, ``kind``, ``relation``, ``value_M``, ``pk``,
+    ``exact`` (relation ``=``), the raw ``binding`` field, ``resolution``, ``year``."""
+    rows = []
+    with open(index_path) as fh:
         for line in fh:
-            line = line.strip()
-            if not line or line.startswith("#"):
+            if not line.strip() or line.startswith("#"):
                 continue
-
-            # Fields are whitespace-separated; column 0 = PDB, column 3 = binding data
             parts = line.split()
-            if len(parts) < 4:
-                continue
-
-            pdb_id = parts[0].lower()
-            binding_field = parts[3]
-
-            m = KD_RE.match(binding_field)
+            m = LABEL_RE.match(parts[3])
             if m is None:
-                continue  # Ki, IC50, or inequality — skip
-
-            value = float(m.group("value"))
-            unit  = m.group("unit")
-            kd_mol = value * UNIT_TO_MOLAR[unit]
-
-            records.append(
-                {
-                    "pdb": pdb_id,
-                    "kd_M": kd_mol,
-                    "log_kd": math.log10(kd_mol),
-                }
-            )
-
-    df_kd = pd.DataFrame(records)
-    print(f"  Kd entries parsed : {len(df_kd):,}")
-    return df_kd
-
-
-# ---------------------------------------------------------------------------
-# Docking data loader
-# ---------------------------------------------------------------------------
-def load_docking_dataframe(zip_path: Path = ZIP_PATH) -> pd.DataFrame:
-    """Read the CSV from inside the zip and return a DataFrame."""
-    buf = _read_zip_entry_with_progress(zip_path, desc="Reading full CSV (zip)")
-    return pd.read_csv(buf)
-
-
-# ---------------------------------------------------------------------------
-# Filtering
-# ---------------------------------------------------------------------------
-def filter_relax_and_perturb(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Keep only rows whose ``type`` contains BOTH 'relax' AND 'perturb'
-    as individual underscore-separated buzzwords.
-
-    Example matching types::
-
-        relax_docking_perturb
-        apo_relax_docking_perturb
-    """
-    buzzwords = df["type"].str.split("_")
-    has_relax   = buzzwords.apply(lambda bw: "relax"   in bw)
-    has_perturb = buzzwords.apply(lambda bw: "perturb" in bw)
-    mask = has_relax & has_perturb
-    return df.loc[mask].copy()
-
-
-# ---------------------------------------------------------------------------
-# Filtered-subset creation & loading
-# ---------------------------------------------------------------------------
-def create_filtered_subset(
-    df_kd: pd.DataFrame,
-    zip_path: Path = ZIP_PATH,
-    out_path: Path = FILTERED_ZIP,
-) -> Path:
-    """
-    Load the full docking data from *zip_path*, filter for relax+perturb
-    protocols, join Kd values, keep only rows **with** a Kd measurement,
-    and save the result as a compressed zip.
-
-    This is intended to be run **once** so that subsequent analyses can
-    skip the expensive 20 M-row load and work with the much smaller
-    subset directly.
-
-    Parameters
-    ----------
-    df_kd : DataFrame
-        Kd index as returned by :func:`load_kd_index`.
-    zip_path : Path
-        Path to the full docking-data zip.
-    out_path : Path
-        Destination zip for the filtered subset.
-
-    Returns the path to the written zip.
-    """
-    print(f"Loading full dataframe from {zip_path} …")
-    df_full = load_docking_dataframe(zip_path)
-    print(f"  Total rows loaded : {len(df_full):,}")
-    print(f"  All type values   : {sorted(df_full['type'].unique())}")
-
-    print("Assigning intra-type sequence IDs to mathematically align with H5 caches …")
-    df_full["type_seq_id"] = df_full.groupby(["pdb", "type"]).cumcount()
-
-    print("Filtering for types containing both 'relax' and 'perturb' …")
-    df = filter_relax_and_perturb(df_full)
-    print(f"  Rows after filter : {len(df):,}")
-    print(f"  Matching types    : {sorted(df['type'].unique())}")
-
-    print("Filtering out sub-optimal poses (total_score <= 0 & idelta_score <= 0) …")
-    df = df.loc[(df["total_score"] <= 0) & (df["idelta_score"] <= 0)].copy()
-    print(f"  Rows after score filter : {len(df):,}")
-
-    print("Joining Kd values and dropping rows without Kd …")
-    df = df.merge(df_kd, on="pdb", how="inner")
-    print(f"  Rows with Kd      : {len(df):,}")
-    print(f"  Unique PDB IDs    : {df['pdb'].nunique():,}")
-
-    csv_name = "pdbbind_relax_perturb_filtered_kd_v2.csv"
-    with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(csv_name, df.to_csv(index=False))
-    print(f"  Filtered subset saved → {out_path}")
-    return out_path
-
-
-def load_filtered_dataframe(
-    df_kd: pd.DataFrame,
-    filtered_path: Path = FILTERED_ZIP,
-    zip_path: Path = ZIP_PATH,
-) -> pd.DataFrame:
-    """
-    Load the pre-filtered relax+perturb subset (with Kd values).
-
-    If the filtered zip does not exist yet, it is created automatically
-    from the full zip + Kd index (one-time cost).
-
-    Parameters
-    ----------
-    df_kd : DataFrame
-        Kd index (used only when the cached zip needs to be created).
-    """
-    if not filtered_path.exists():
-        print(f"Filtered zip not found at {filtered_path} — creating it now.")
-        create_filtered_subset(df_kd, zip_path=zip_path, out_path=filtered_path)
-
-    buf = _read_zip_entry_with_progress(
-        filtered_path, desc="Loading filtered subset",
-    )
-    df = pd.read_csv(buf)
-    print(f"  Rows loaded : {len(df):,}")
+                raise ValueError(f"unparsed binding field {parts[3]!r} for {parts[0]}")
+            value = float(m["value"]) * UNIT_TO_MOLAR[m["unit"]]
+            rows.append({"pdb": parts[0].lower(), "kind": m["kind"], "relation": m["relation"], "value_M": value,
+                         "pk": -math.log10(value), "exact": m["relation"] == "=", "binding": parts[3],
+                         "resolution": parts[1], "year": int(parts[2])})
+    df = pd.DataFrame(rows)
+    if not df["pdb"].is_unique:
+        raise ValueError("duplicate PDB ids in the index")
     return df
 
 
+def casf_core_ids() -> set[str]:
+    """The CASF-2016 core set (= the HAC test set of ``splits.csv``)."""
+    ann = pd.read_csv(SPLITS_PATH, dtype=str)
+    return set(ann.loc[ann["hacsplit"].eq("test"), "pdb"])
+
+
 # ---------------------------------------------------------------------------
-# Unified per-PDB aggregation
+# pools and aggregations
 # ---------------------------------------------------------------------------
-def aggregate_per_pdb(
-    df: pd.DataFrame,
-    score_col: str = "idelta_score",
-    strategy: str = "min",
-    n: int = 10,
-    extra_cols: list[str] | None = None,
-    **kwargs,
-) -> pd.DataFrame:
-    """
-    Aggregate *score_col* (and optionally *extra_cols*) per PDB entry.
+RUN_POOLS: dict[str, list[str]] = {p: [p] for p in PROTOCOLS}
+for _s in ("relax", "apo_relax"):
+    RUN_POOLS[f"{_s}_docking_perturb+std"] = [f"{_s}_docking_perturb", f"{_s}_docking_std"]
+SEED_POOLS: dict[str, str] = {"crystal": "crystal", "relax_ref": "relax"}       # pool -> receptor state in seeds.parquet
+POOLS: tuple[str, ...] = tuple(RUN_POOLS) + tuple(SEED_POOLS)
+TRAIN_POOLS = ("apo_relax_docking_perturb", "relax_docking_perturb",
+               "apo_relax_docking_perturb+std", "relax_docking_perturb+std", "relax_ref", "crystal")
+HEADLINE_POOL = "apo_relax_docking_perturb"
+AGGREGATIONS = ("best", "mean10", "mean", "best_hit")
+HEADLINE_AGG = "best"
+HIT_CUTOFF = 2.0
+VALUE_COLS = ["idelta_score", "rmsd_to_crystal"] + FEATURE_COLS
+FEATURES_PATH = AFFINITY_DIR / "features.parquet"
 
-    Parameters
-    ----------
-    df : DataFrame
-        Must contain a ``"pdb"`` column plus *score_col* (and *extra_cols*).
-    score_col : str
-        Column to aggregate.
-    strategy : str
-        ``"min"``            — single row with the lowest *score_col*.
-        ``"mean_n"``         — mean of the *n* lowest *score_col* rows.
-        ``"filtered_mean"``  — mean of all poses (all poses now pass the 
-                               non-positive idelta_score & total_score filter).
-    n : int
-        Used only when *strategy* is ``"mean_n"``.
-    extra_cols : list[str] | None
-        Additional columns to aggregate alongside *score_col*.  When
-        *strategy* is ``"min"`` these are taken from the same row; for the
-        mean strategies they are averaged.
 
-    Returns
-    -------
-    DataFrame with ``"pdb"``, ``"sample_weight"``, plus the aggregated
-    columns.  Current strategies always produce one row per PDB with
-    ``sample_weight = 1.0``.  Future strategies (e.g. clustered) may
-    return multiple rows per PDB with varying weights.
-    """
-    cols = [score_col] + (extra_cols or [])
+def pool_label(pool: str) -> str:
+    if pool == "crystal":
+        return "crystal complex (input, unrelaxed)"
+    if pool == "relax_ref":
+        return "relaxed holo complex (docking reference)"
+    state, rest = pool.split("_docking_")
+    return f"{state} · {rest.replace('+std', ' + std')}"
 
-    if strategy == "min":
-        result = (
-            df.loc[df.groupby("pdb", sort=False)[score_col].idxmin()]
-            [["pdb"] + cols]
-            .copy()
-        )
 
-    elif strategy == "mean_n":
-        def _mean_n(grp: pd.DataFrame) -> pd.Series:
-            return grp.nsmallest(n, score_col)[cols].mean()
-
-        result = (
-            df.groupby("pdb", sort=False, group_keys=False)
-            .apply(_mean_n, include_groups=False)
-            .reset_index()
-        )
-
-    elif strategy == "filtered_mean":
-        result = (
-            df.groupby("pdb", sort=False)[cols]
-            .mean()
-            .reset_index()
-        )
-
-    elif strategy == "clustered":
-        # Requires a pre-computed cluster_map: {pdb: [Cluster, ...]}
-        cluster_map = kwargs.get("cluster_map")
-        if cluster_map is None:
-            raise ValueError(
-                "The 'clustered' strategy requires a 'cluster_map' kwarg."
-            )
-
-        rows = []
-        for pdb_id, grp in df.groupby("pdb", sort=False):
-            clusters = cluster_map.get(pdb_id)
-            if not clusters:
-                continue
-            # Sort the group ONCE — representative_idx is a rank in this order
-            grp_sorted = grp.sort_values(score_col)
-            n_rows = len(grp_sorted)
-            for cluster in clusters:
-                rep_local = cluster.representative_idx
-                if rep_local < n_rows:
-                    rep_row = grp_sorted.iloc[rep_local]
-                    row_data = {"pdb": pdb_id, "sample_weight": 1.0}
-                    for c in cols:
-                        row_data[c] = rep_row[c]
-                    rows.append(row_data)
-
-        result = pd.DataFrame(rows) if rows else pd.DataFrame(
-            columns=["pdb"] + cols + ["sample_weight"]
-        )
-        return result
-
+def aggregate(poses: pd.DataFrame, aggregation: str, cutoff: float = HIT_CUTOFF) -> pd.DataFrame:
+    """One row per complex of *poses* (one pool, possibly several protocols of one receptor
+    state): the aggregated ``VALUE_COLS``, ``n_poses`` and ``n_hits`` of the pool."""
+    hit = poses["rmsd_to_crystal"] <= cutoff
+    g = poses.groupby("pdb", sort=False)
+    counts = pd.DataFrame({"n_poses": g.size(), "n_hits": hit.groupby(poses["pdb"], sort=False).sum().astype(int)})
+    if aggregation == "best":
+        out = poses.loc[g["idelta_score"].idxmin(), ["pdb"] + VALUE_COLS].set_index("pdb")
+        out["n_agg"] = 1
+    elif aggregation == "best_hit":
+        h = poses[hit]
+        out = h.loc[h.groupby("pdb", sort=False)["idelta_score"].idxmin(), ["pdb"] + VALUE_COLS].set_index("pdb")
+        out["n_agg"] = 1
+    elif aggregation == "mean10":
+        s = poses.sort_values(["pdb", "idelta_score"], kind="mergesort")
+        top = s.groupby("pdb", sort=False).head(10).groupby("pdb", sort=False)
+        out = top[VALUE_COLS].mean()
+        out["n_agg"] = top.size()
+    elif aggregation == "mean":
+        neg = poses[poses["idelta_score"] <= 0].groupby("pdb", sort=False)
+        out = neg[VALUE_COLS].mean()
+        out["n_agg"] = neg.size()
     else:
-        raise ValueError(f"Unknown aggregation strategy: {strategy!r}")
-
-    result["sample_weight"] = 1.0
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Kd column join helper
-# ---------------------------------------------------------------------------
-def join_kd_columns(
-    per_pdb_df: pd.DataFrame,
-    source_df: pd.DataFrame,
-    merge_cols: list[str] | None = None,
-) -> pd.DataFrame:
-    """
-    Merge Kd-related columns from *source_df* onto *per_pdb_df* via the
-    ``"pdb"`` key.
-
-    Parameters
-    ----------
-    per_pdb_df : DataFrame
-        One row per PDB (e.g. output of :func:`aggregate_per_pdb`).
-    source_df : DataFrame
-        Full docking frame that contains ``"pdb"`` and the Kd columns.
-    merge_cols : list[str] | None
-        Columns to bring over.  Defaults to ``["log_kd"]``.
-
-    Returns
-    -------
-    Merged DataFrame (inner join, NaN rows dropped on *merge_cols*).
-    """
-    if merge_cols is None:
-        merge_cols = ["log_kd"]
-
-    kd = source_df[["pdb"] + merge_cols].drop_duplicates("pdb")
-    merged = per_pdb_df.merge(kd, on="pdb", how="inner")
-    return merged.dropna(subset=merge_cols)
+        raise ValueError(f"unknown aggregation {aggregation!r}; choose from {AGGREGATIONS}")
+    out = out.join(counts, how="left")
+    out.insert(0, "aggregation", aggregation)
+    return out.reset_index()
 
 
-# ---------------------------------------------------------------------------
-# raw_delta column discovery
-# ---------------------------------------------------------------------------
-def get_raw_delta_columns(df: pd.DataFrame) -> list[str]:
-    """
-    Return the list of informative ``raw_delta_*`` column names.
+def complex_info(set_name: str = "pdbbind", extract_dir: Path | str | None = None) -> pd.DataFrame:
+    """The complete complexes of a set: ``pdb``, ``ligand_n_heavy``, ``ligand_n_automorphisms``."""
+    cx = pd.read_parquet(extraction_dir(set_name, extract_dir) / "complexes.parquet",
+                         columns=["pdb", "complete", "ligand_n_heavy", "ligand_n_automorphisms"])
+    return cx[cx["complete"].eq(True)].drop(columns="complete").reset_index(drop=True)
 
-    Excludes:
-    - Columns containing ``"???"`` (unknown terms)
-    - Columns in :data:`~affinity.constants.ZERO_VARIANCE_TERMS`
-    """
-    return [
-        c for c in df.columns
-        if c.startswith("raw_delta_")
-        and "???" not in c
-        and c not in ZERO_VARIANCE_TERMS
-    ]
+
+def seed_rows(set_name: str, pool: str, extract_dir: Path | str | None = None, cutoff: float = HIT_CUTOFF) -> pd.DataFrame:
+    """The reference structure of a ``SEED_POOLS`` pool as a one-pose aggregation (``best``)."""
+    d = extraction_dir(set_name, extract_dir)
+    state = SEED_POOLS[pool]
+    df = pd.read_parquet(d / "seeds.parquet", columns=["pdb", "state", "is_docking_reference"] + VALUE_COLS)
+    df = df[df["state"].eq(state)]
+    if state != "crystal":
+        df = df[df["is_docking_reference"].eq(True)]
+    df = df[df["pdb"].isin(complex_info(set_name, extract_dir)["pdb"])]
+    if not df["pdb"].is_unique:
+        raise ValueError(f"several {state} reference rows per complex")
+    out = df[["pdb"] + VALUE_COLS].reset_index(drop=True)
+    recomputed = out[FEATURE_COLS].to_numpy() @ rosetta_weights()          # the stored seed idelta is corrupt for a few rows
+    out["idelta_score_stored"] = out["idelta_score"]
+    out["idelta_score"] = recomputed
+    out["n_poses"] = 1
+    out["n_agg"] = 1
+    out["n_hits"] = (out["rmsd_to_crystal"] <= cutoff).astype(int)
+    out.insert(1, "aggregation", "best")
+    return out
+
+
+def build_features(set_name: str = "pdbbind", extract_dir: Path | str | None = None, cutoff: float = HIT_CUTOFF,
+                   pools: tuple[str, ...] = POOLS, log=print) -> pd.DataFrame:
+    """The long feature table: one row per complete complex × pool × aggregation with the
+    aggregated ``VALUE_COLS``, ``n_poses`` and ``n_hits``."""
+    parts = []
+    for pool in pools:
+        if pool in SEED_POOLS:
+            t = seed_rows(set_name, pool, extract_dir, cutoff)
+            bad = int((abs(t["idelta_score_stored"] - t["idelta_score"]) > 1e-2).sum())
+            log(f"features: pool {pool}: stored interface delta recomputed from the terms; {bad} rows differed by > 0.01")
+            t = t.drop(columns="idelta_score_stored")
+        else:
+            poses = load_poses(set_name, RUN_POOLS[pool], extract_dir)
+            t = pd.concat([aggregate(poses, a, cutoff) for a in AGGREGATIONS], ignore_index=True)
+            del poses
+        t.insert(1, "pool", pool)
+        parts.append(t)
+        log(f"features: pool {pool}: {t['pdb'].nunique():,} complexes, {len(t):,} rows")
+    return pd.concat(parts, ignore_index=True)
+
+
+def load_features(path: Path | str = FEATURES_PATH, rebuild: bool = False, log=print, **kwargs) -> pd.DataFrame:
+    """The cached feature table (built with :func:`build_features` when missing or ``rebuild``)."""
+    path = Path(path)
+    if path.exists() and not rebuild:
+        return pd.read_parquet(path)
+    feats = build_features(log=log, **kwargs)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    feats.to_parquet(path, index=False)
+    log(f"features written -> {path} ({len(feats):,} rows)")
+    return feats

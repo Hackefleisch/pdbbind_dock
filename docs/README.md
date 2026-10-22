@@ -16,6 +16,9 @@ file(s) it documents.
   energy-degeneracy analysis (Appendix A.1), the per-complex oracle (A.2), the example
   complexes and the UMAP/t-SNE illustration (source: [`ranking/degeneracy.py`](../ranking/degeneracy.py),
   [`ranking/degeneracy_report.py`](../ranking/degeneracy_report.py)).
+- [affinity.md](affinity.md) — Track 3, S7: the interface delta and its linear reweighting
+  against the experimental affinity — labels, pose pools, aggregations, splits, the bootstrap
+  evaluation and the results (source: [`affinity/`](../affinity/)).
 
 ## Paper 1 (characterisation of RosettaLigand)
 
@@ -38,9 +41,6 @@ file(s) it documents.
   collected in PAPER1_STORY_INVENTORY.md §0.2).
 - `benchmarks.md` — the PoseBusters / Astex Diverse evaluation sets and how they
   differ from the PDBbind set; the success-rate metrics of `docking_analysis/benchmark.py`.
-- `reweighting.md` — the energy-term reweighting model, aggregation strategies,
-  clustering, and evaluation (source: the rewritten `affinity/` package), once the
-  affinity track is rewritten on the full extraction.
 
 See [../CLAUDE.md](../CLAUDE.md) for the code-level overview and
 [../README.md](../README.md) for the project summary.

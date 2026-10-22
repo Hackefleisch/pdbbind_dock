@@ -31,3 +31,4 @@ H5_DIRS             = {                      # one directory of <pdb>.h5 files p
 EXTRACT_DIR         = DATA_DIR / "docking_stats"   # full extractions live in <EXTRACT_DIR>/<set>_full/
 RANKING_DIR         = DATA_DIR / "ranking"         # Track 2 runs: <RANKING_DIR>/<run>/ (models, per-run tables, results)
 DEGENERACY_DIR      = RANKING_DIR / "degeneracy"   # Track 2, S6: per-run energy degeneracy + oracle tables (ranking.degeneracy)
+AFFINITY_DIR        = DATA_DIR / "affinity"        # Track 3: per-complex feature cache + results of affinity.train

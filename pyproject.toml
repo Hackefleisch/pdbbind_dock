@@ -1,7 +1,7 @@
 [project]
 name = "pdbbind-dock"
 version = "0.1.0"
-description = "Re-dock PDBbind/PoseBusters/Astex protein-ligand complexes with PyRosetta and learn an energy-term reweighting for binding-affinity (Kd) prediction."
+description = "Re-dock PDBbind/PoseBusters/Astex protein-ligand complexes with PyRosetta and learn an energy-term reweighting for binding-affinity (Kd / Ki) prediction."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
