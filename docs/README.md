@@ -19,6 +19,9 @@ file(s) it documents.
 - [affinity.md](affinity.md) — Track 3, S7: the interface delta and its linear reweighting
   against the experimental affinity — labels, pose pools, aggregations, splits, the bootstrap
   evaluation and the results (source: [`affinity/`](../affinity/)).
+- [basins.md](basins.md) — Track 3, Appendix A.3 step 2a: the basins of every docking run —
+  pairwise symmetry-corrected ligand RMSD, greedy leader clustering, the basin and run tables
+  and their descriptive statistics (source: [`affinity/basins.py`](../affinity/basins.py)).
 
 ## Paper 1 (characterisation of RosettaLigand)
 

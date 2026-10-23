@@ -286,7 +286,7 @@ The paper is told as three tracks (story update of 2026-10-09), each with a lead
 |---|---|---|---|
 | **T1 — Benchmark** | How well does RosettaLigand work on PDBbind, PoseBusters and Astex? *Side aim:* by which mode does it sample near-crystal structures — when does it find the crystal basin at all? | Paul / Luca; side aim Josephine | S1, S2, S3, S4, S8 |
 | **T2 — Fix the ranking** | Can the failure mode (picking the right pose) be repaired? Reweighting + ML heads give mild improvements only; then *why?* — the energy-degeneracy analysis (Appendix A.1) and the per-complex oracle probe (A.2), with UMAP/t-SNE as illustration | Luca; analysis Paul | S5, S6 |
-| **T3 — Affinity** | Can score ↔ binding free energy be improved? Reweighting of the best pose (done: +0.06 in r, and the interface delta stays below the ligand-size baseline on LP-PDBBind), then the sampled-density free energy with Bayesian uncertainty (A.3 step 2, open) | Paul | S7 |
+| **T3 — Affinity** | Can score ↔ binding free energy be improved? Reweighting of the best pose (done: +0.06 in r, and the interface delta stays below the ligand-size baseline on LP-PDBBind), then the basins of the existing poses (A.3 step 2a: clustering done 2026-10-23, the basin-statistics test open) and the fitted-density free energy with Bayesian uncertainty (step 2b). **All of A.3 is Paper 1 material (decided 2026-10-22)** | Paul | S7 |
 
 The logic that links them: T1 establishes that the sampler works, T2 that the energies cannot tell
 right from wrong, and T3 turns both facts around — if the samples are physically plausible but the
@@ -568,11 +568,42 @@ resists → baseline affinity correlation → outlook (Paper 2).*
     of PDBbind (targets with ≥ 5–10 labelled complexes, MAE after removing the target mean) —
     needs a protein identifier per complex (the PDBbind name index with UniProt ids is not in
     `data/pdbbind_2020plus`, or sequence clustering of the receptor files).
-  - Appendix A.3 step 2 (sampled-density free energy with Bayesian error bars) is new code and
-    an open Paper 1 / Paper 2 boundary decision (§4 item 4); the term ablation of this step
-    (all / without fa_pair / enthalpic) is the starting point for its energy function. The
-    filtered mean over the near-native ensemble of the std runs reaching 0.47 against 0.45 for
-    the best pose (all complexes, no split, Pearson r) is the only hint in the data so far.
+  - **Basins on the existing poses = A.3 step 2a (decided 2026-10-22, cutoff 1 Å first).** Per
+    docking run the pairwise symmetry-corrected in-place ligand RMSD of its 300 poses
+    (`docking.ligand_rmsd` on the coordinates reconstructed from the H5 diffs, 44,850 pairs per
+    run) and a greedy leader clustering on the energy-sorted poses: the best pose founds the
+    first basin, every following pose joins the first founder within the cutoff or founds a new
+    basin — the minimum defines the basin. Cutoff 1 Å to test first (2 Å, the legacy grid's
+    value, as the reference). Output: one parquet with a basin id per pose and a per-run basin
+    table (number of basins; per basin population, founder energy, width = mean / max RMSD of the
+    members to the founder, RMSD of the founder to the crystal ligand).
+    **Clustering done 2026-10-23** (`affinity.basins`, [basins.md](basins.md); the three perturb
+    protocols of all three sets, 35,748 runs, 0 errors, 30 min; the RMSD matrices are stored as
+    float16 under `data/affinity/basins/rmsd/`): at 1 Å a PDBbind run falls into 267–272 basins
+    (92 % singletons; the best basin holds 2–4 poses), at 2 Å into 187–193 (76 % singletons; best
+    basin 6–10 poses) — **the 1 Å cutoff sits at the resolution limit of 300 trajectories
+    (populations 0 / 1), so the test should run on both cutoffs with 2 Å expected to be the usable
+    one.** The native basin exists in 86–95 % of the runs and is not the best in 24–40 % of them
+    (median index 3–4, 1.5–1.9 REU above the minimum); the largest basin is native in only
+    42–75 %; the best basin's population is 4 vs 1 for correct vs incorrect best poses (a
+    pose-correctness signal, noted for T2, and a possible confounder of the affinity test); the
+    number of basins grows with the ligand size (ρ 0.45) and shrinks with the hit count (ρ −0.77);
+    % best basin native = the benchmark's Success@1 exactly.
+    **Open — the test:** the per-complex basin statistics (population and width of the best-energy
+    and of the native basin, number of basins within a few REU of the minimum, log-sum-exp over
+    basins weighted by population / by width = Paper 2's S2 / S3) through the partial-correlation
+    protocol of [affinity.md](affinity.md) §8.2 and as features in the affinity grid (MAE,
+    intervals). The populations are catchments of starts within 5 Å of the crystal placement
+    (biased towards the native neighbourhood, the same bias for weak and strong binders); the
+    unbiased version needs run A. The basin table also gives S6 the number of competing minima
+    per run.
+  - Appendix A.3 step 2b (the fitted-density free energy with Bayesian error bars) is new code
+    and an open Paper 1 / Paper 2 boundary decision (§4 item 4); it follows step 2a only if the
+    basin statistics carry signal on the existing samples or once run A exists (see A.3). The
+    term ablation of step 1 (all / without fa_pair / enthalpic) is the starting point for its
+    energy function. The filtered mean over the near-native ensemble of the std runs reaching
+    0.47 against 0.45 for the best pose (all complexes, no split, Pearson r) is the only hint in
+    the data so far.
   - Literature `[CITE]`: the CASF-2016 scoring-power numbers of classical functions for the
     CASF-core comparison.
 
@@ -640,7 +671,11 @@ quotes them by accident; every one of them is superseded by §1 or must be recom
    CleanSplit); the Astex entries that are PDBbind complexes (43 of 84) are excluded from training in
    every split. **Adopted for S7 on 2026-10-21:** the same three splits, train + val pooled for the
    least-squares fits, the CASF core complexes outside each training set as external test.
-4. Paper 1 / Paper 2 boundary for Appendix A.3 step 2.
+4. ~~Paper 1 / Paper 2 boundary for Appendix A.3 step 2.~~ **Decided 2026-10-22: Appendix A.3 is
+   part of Paper 1** — step 1 (done), step 2a (the basins on the existing poses; the clustering
+   is done, the test of the basin statistics is next) and step 2b (the fitted-density free
+   energy with Bayesian error bars, descriptive, on the existing data). Paper 2 keeps only the
+   trained version (see A.3).
 5. Labels for T3: Kd + Ki headline, IC50 separate — implemented 2026-10-21 (exact values only).
 6. Symmetry-corrected RMSD: done (auto-corrected on access, stored values kept as legacy).
 
@@ -657,6 +692,9 @@ quotes them by accident; every one of them is superseded by §1 or must be recom
    [ranking.md](ranking.md)).
 6. Josephine's re-plots + dataset-wide proxies (S3).
 7. Decide on Appendix B run A.
+8. Appendix A.3 step 2a: ~~the basins of every perturb run (clustering, basin tables, RMSD
+   matrices)~~ done 2026-10-23 ([basins.md](basins.md)); next the test of the basin statistics
+   against pK (S7 to-do), then step 2b.
 
 ---
 
@@ -879,16 +917,39 @@ the poses near the minimum, i.e. pairwise ligand RMSDs per run), not as a spread
 spread statistic scales with |E_min| and the heavy-atom count. Without these three it reproduces
 the null result with more machinery.
 
-**Paper 1 / Paper 2 boundary — open decision (§4, item 4).** Step 2 is the descriptive, non-learned
-sibling of Paper 2's estimator ladder (S3–S5 there). Suggested line, to be agreed with co-authors:
+**Step 2a — basins on the existing samples (decided 2026-10-22; the first stage of step 2, not a
+separate analysis).** Item 1 of step 2 offers "a reduced coordinate from the clustering" as the
+pose representation; step 2a is that choice made discrete and taken to its descriptive end:
+pairwise symmetry-corrected ligand RMSD per run, greedy leader clustering on the energy-sorted
+poses at 1 Å (2 Å as reference), and per run the basins with their population (the catchment of
+the start distribution), founder energy (depth), width (RMSD spread of the members) and native
+flag; then the test of S7's to-do: do population, width, the number of competing basins and the
+basin-weighted log-sum-exp estimators (Paper 2's S2 / S3) add anything to the minimum energy and
+the ligand size? It is the go / no-go for step 2b: a fitted density over the same samples is a
+smooth version of the same information, so if the basin statistics carry nothing beyond the
+minimum and the size, step 2b on the perturb samples cannot either, and the ensemble question
+moves to run A's unbiased starts. Step 2a is cheap (hours, no docking), descriptive and on
+existing data, so it belongs to Paper 1 whatever the boundary decision for step 2b.
+*Item 1 (the clustering) implemented 2026-10-22 and run 2026-10-23:* `affinity/basins.py`,
+documented with the descriptive results in [basins.md](basins.md). Finding that bears on the
+test: at 1 Å the runs are almost completely fragmented (92 % of the basins are single poses), so
+the basin populations are resolved only at 2 Å; the test of the basin statistics (S7 to-do) is
+the next step and should use both cutoffs.
 
-- **Paper 1** keeps step 1, plus *one* fitted-density estimator with Bayesian error bars,
-  evaluated descriptively on the existing data. It ends on "the ensemble carries information the
-  single best pose does not".
+**Paper 1 / Paper 2 boundary — decided 2026-10-22 (§4, item 4): Appendix A.3 is part of Paper 1.**
+Step 2 is the descriptive, non-learned sibling of Paper 2's estimator ladder (S3–S5 there), and
+the line is drawn by method, not by outcome:
+
+- **Paper 1** keeps step 1, step 2a (the basin statistics and their test) and step 2b (at most
+  *one* fitted-density estimator with Bayesian error bars, evaluated descriptively on the
+  existing data). It ends on "the ensemble carries information the single best pose does not" —
+  or, if step 2a is negative, on the statement that the catchment of perturbed starts does not,
+  and that run A is the experiment that can.
 - **Paper 2** keeps the trained version: learned proposal density, the bound/separated
   thermodynamic cycle, the Boltzmann-consistent objective, the estimator comparison and the
   calibration tests.
-- If step 2 turns out to work very well, revisit the split — it may belong entirely to Paper 2.
+- The earlier clause "if step 2 works very well, revisit the split" is superseded by this
+  decision.
 
 ---
 
@@ -900,11 +961,34 @@ only items that require new cluster runs. A and B are shared with Paper 2 (= C3 
 
 | ID | Run | Needed for | Priority | Notes |
 |---|---|---|---|---|
-| **A** | **Pocket-box docking from random starts** — random ligand position/orientation inside a pocket box, random conformer, no crystal-pose seeding, crystal conformer excluded from the rotamer library; ~300 poses per complex | S1/S2 fair comparison against blind DL methods; the only version of "docking power" that is not re-docking | **High** | Start on Astex + PoseBusters (472 complexes) and a PDBbind subset; extend if it works. Also = Paper 2 / C3 |
+| **A** | **Pocket-box docking from random starts** — the start distribution is the point: uniformly random ligand position and orientation inside the pocket box (a far larger displacement than the 5 Å ball of the perturb protocol, or any other start distribution that does not depend on the crystal placement), random conformer, no crystal-pose seeding, crystal conformer excluded from the rotamer library; ~300 poses per complex; **the start pose of every trajectory is recorded** (rigid-body position and orientation, conformer / torsions) next to the final pose; the pre-minimisation pose as an optional extra output | S1/S2 fair comparison against blind DL methods; the only version of "docking power" that is not re-docking; **S7 / A.3: the catchment experiment** (funnel width at the top, see below) | **High** | Start on Astex + PoseBusters (472 complexes) and a PDBbind subset; extend if it works. Also = Paper 2 / C3 |
 | **B** | **True apo receptors** for targets with an apo PDB entry | S8 question 2 (pocket recovery from an unbound structure) | Medium | Requires an apo↔holo matching step `[TODO]`; without it, that question must be reworded |
 | **C** | **Run the PoseBusters validity suite** on the current poses | S4 corrected PB-valid ranking after the RDKit/kekulé fix | **High** | Analysis-level compute only, no docking |
 | **D** | Optional: **more samples on a subset** (e.g. 1,000 poses for a few hundred complexes) | S1 saturation check — does the success-vs-N curve flatten before 300? | Low | The analytic success-vs-N of §1 may already answer it |
 | **E** | **Ligand-series docking on external affinity sets** — every ligand of a congeneric series docked into the series' reference receptor (perturb protocol; no crystal conformer for ligands without a structure) | S7: does the affinity signal of the interface delta survive outside PDBbind's one-binder-per-pocket regime, against the ligand-size baseline; easy / medium / hard by target and ligand overlap with the training corpus | Medium | Added 2026-10-22; dataset choice and target-similarity assignment `[TODO]` before any docking |
+
+**Run A as the catchment experiment (added 2026-10-22).** Run A is not the perturb protocol with
+more poses: its starts are drawn independently of the crystal placement (uniform in the pocket
+box, i.e. a much larger perturbation, or another crystal-independent start distribution), which
+is what makes its catchments unbiased. In the funnel picture the minimised
+poses are the deep end of a funnel and the number of starts that end in a basin is its width at
+the top. Every docking trajectory is one measurement of the start → basin map, so a run with
+uniformly random starts in the pocket box measures the catchment volume of every basin —
+provided the start of each trajectory is recorded (position, orientation, conformer / torsions)
+and the final poses are assigned to basins (pairwise symmetry-corrected ligand RMSD per run plus
+clustering, the precursor named in S7). The existing perturb runs already contain this
+measurement in a biased form: their starts lie within 5 Å of the crystal placement, so the hit
+fraction per run is the catchment of the native basin inside that ball, and it carries no
+affinity signal beyond the ligand size and the minimum energy ([affinity.md](affinity.md)
+§8.2). Run A makes the catchment unbiased and gives it for every basin, which is what the
+ensemble question of A.3 step 2 needs first. Two things it does *not* deliver, by construction
+of the protocol: the pre-minimisation pose (Transform's 500-step walk at T = 5 on the grid score
+returns the best pose it visited, then one HighResDocker cycle) is a near-minimum of the
+softened landscape and not a thermal sample — its distance to the final pose measures one
+gradient flow, typically below 1 Å — and no state of the trajectory is Boltzmann-distributed in
+the full-atom score. Storing the pre-minimisation pose is free and may be switched on, but the
+information that matters is the start. Thermal in-basin sampling (Paper 2 / C2) is not planned
+for Paper 1 (decided 2026-10-22).
 
 Not needed for Paper 1: unconstrained relaxation and thermal basin sampling (Paper 2 / C1, C2).
 

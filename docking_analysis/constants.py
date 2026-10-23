@@ -32,3 +32,4 @@ EXTRACT_DIR         = DATA_DIR / "docking_stats"   # full extractions live in <E
 RANKING_DIR         = DATA_DIR / "ranking"         # Track 2 runs: <RANKING_DIR>/<run>/ (models, per-run tables, results)
 DEGENERACY_DIR      = RANKING_DIR / "degeneracy"   # Track 2, S6: per-run energy degeneracy + oracle tables (ranking.degeneracy)
 AFFINITY_DIR        = DATA_DIR / "affinity"        # Track 3: per-complex feature cache + results of affinity.train
+BASINS_DIR          = AFFINITY_DIR / "basins"      # Track 3, A.3 step 2a: per-run basins + pairwise ligand RMSD matrices (affinity.basins)

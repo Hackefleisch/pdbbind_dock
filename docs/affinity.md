@@ -570,7 +570,9 @@ this null result with more machinery unless it changes three things:
 - **Energy-space spread is the wrong coordinate.** A deep wide basin and a deep narrow one look
   alike in a histogram of 300 energies. The width is geometric — the RMSD or torsion spread of the
   poses that sit near the minimum — and needs pairwise ligand RMSDs per run (what the deleted
-  cluster cache held; recomputable with `docking.ligand_rmsd`).
+  cluster cache held; recomputable with `docking.ligand_rmsd`). *Done as step 2a on 2026-10-22:*
+  `affinity.basins` computes them for every perturb run and clusters the poses into basins
+  ([basins.md](basins.md)).
 - **Every spread statistic scales with |e_min| and the ligand size.** Step 2 must normalise per
   complex (z-scored energies as in the degeneracy analysis) or condition on the minimum and the
   size, and report the partial gain, not the raw correlation.

@@ -83,7 +83,9 @@ class Result:
         self.name: str = name
         self.path: str = h5_file_path
         self.autocorrect: bool = autocorrect
-        self.ligand_symmetry = None          # docking.ligand_rmsd.LigandSymmetry once computed
+        self.ligand_symmetry = None          # docking.ligand_rmsd.LigandSymmetry once computed (``symmetry``)
+        self._seed_xyz = None                # cache of seed_ligand_xyz()
+        self._docked_xyz = None              # cache of docked_ligand_xyz()
         self.n_rmsd_uncorrected: int = 0     # rows whose RMSD could not be recomputed (legacy kept)
         self.autocorrect_notes: list[str] = []
 
@@ -126,6 +128,7 @@ class Result:
                 # keep the memory footprint of load_structure=False
                 del self.relax_pdb
                 del self.docking_pdb_updates
+                self._seed_xyz = self._docked_xyz = None
 
     # ------------------------------------------------------------------ #
     # auto-correction
@@ -143,73 +146,109 @@ class Result:
 
     def _autocorrect_rmsd(self) -> None:
         """rmsd_to_crystal / rmsd_to_input <- symmetry-corrected in-place RMSDs from the stored structures."""
-        from docking.ligand_rmsd import (LigandSymmetry, docked_ligand_lines,
-                                         heavy_xyz_from_pdb_lines, ligand_lines)
-
         for df in (self.relax_df, self.docking_df):
             for col in ('rmsd_to_crystal', 'rmsd_to_input'):
                 if f'{col}_legacy' not in df.columns:
                     df[f'{col}_legacy'] = df[col].copy()
 
-        sym = LigandSymmetry(self.mol)
-        self.ligand_symmetry = sym
-
-        seed_lines = [s.split('\n') for s in self.relax_pdb]
-        seed_xyz: list = []
-        for lines in seed_lines:
-            try:
-                li = ligand_lines(lines)
-                seed_xyz.append(heavy_xyz_from_pdb_lines([lines[i] for i in li], self.atmname_to_index, sym))
-            except Exception:
-                seed_xyz.append(None)
-
+        sym = self.symmetry
+        seed_xyz = self.seed_ligand_xyz()
+        seed_ok = ~np.isnan(seed_xyz).any(axis=(1, 2))
         crystal_rows = np.where(self.relax_df['type'].to_numpy() == 'crystal')[0]
-        crystal_xyz = seed_xyz[crystal_rows[0]] if len(crystal_rows) else None
-        if crystal_xyz is None:
+        if len(crystal_rows) == 0 or not seed_ok[crystal_rows[0]]:
             self.n_rmsd_uncorrected = len(self.relax_df) + len(self.docking_df)
             self.autocorrect_notes.append('rmsd: crystal ligand not available, legacy values kept')
             return
+        crystal_xyz = seed_xyz[crystal_rows[0]]
 
         # seeds: RMSD to the crystal ligand (also the input of the relaxation)
         vals = self.relax_df['rmsd_to_crystal_legacy'].to_numpy(dtype=np.float32).copy()
-        for k, xyz in enumerate(seed_xyz):
-            if xyz is not None:
-                vals[k] = sym.rmsd(xyz, crystal_xyz)
-            else:
-                self.n_rmsd_uncorrected += 1
+        vals[seed_ok] = sym.rmsd_many(seed_xyz[seed_ok], crystal_xyz)
+        self.n_rmsd_uncorrected += int((~seed_ok).sum())
         self.relax_df['rmsd_to_crystal'] = vals
         self.relax_df['rmsd_to_input'] = vals.copy()
 
-        # docked poses: ligand lines collected from the diff against the docking reference seed
+        # docked poses: ligand coordinates reconstructed from the diff against the docking reference seed
+        xyz_all = self.docked_ligand_xyz()
         protocols = self.docking_df['type'].to_numpy()
         states = np.array(['_'.join(p.split('_')[:-2]) for p in protocols])
-        ref = {}
-        for st in np.unique(states):
-            r = self.reference_index(st)
-            ref[st] = (seed_lines[r], ligand_lines(seed_lines[r]), seed_xyz[r])
-        n = len(protocols)
-        xyz_all = np.full((n, sym.n_heavy, 3), np.nan)
-        for k, upd in enumerate(self.docking_pdb_updates[:n]):
-            lines, li, _ = ref[states[k]]
-            try:
-                xyz_all[k] = heavy_xyz_from_pdb_lines(docked_ligand_lines(lines, li, upd), self.atmname_to_index, sym)
-            except Exception:
-                pass
         ok = ~np.isnan(xyz_all).any(axis=(1, 2))
         rc = self.docking_df['rmsd_to_crystal_legacy'].to_numpy(dtype=np.float32).copy()
         ri = self.docking_df['rmsd_to_input_legacy'].to_numpy(dtype=np.float32).copy()
         if ok.any():
             rc[ok] = sym.rmsd_many(xyz_all[ok], crystal_xyz)
-            for st, (_, _, rxyz) in ref.items():
+            for st in np.unique(states):
+                r = self.reference_index(st)
                 m = ok & (states == st)
-                if m.any() and rxyz is not None:
-                    ri[m] = sym.rmsd_many(xyz_all[m], rxyz)
+                if m.any() and seed_ok[r]:
+                    ri[m] = sym.rmsd_many(xyz_all[m], seed_xyz[r])
         self.n_rmsd_uncorrected += int((~ok).sum())
         self.docking_df['rmsd_to_crystal'] = rc
         self.docking_df['rmsd_to_input'] = ri
         self.autocorrect_notes.append(
             f'rmsd: symmetry-corrected in place ({sym.n_automorphisms} automorphisms'
             f'{", capped" if sym.capped else ""}; {self.n_rmsd_uncorrected} rows kept legacy)')
+
+    # ------------------------------------------------------------------ #
+    # ligand coordinates (used by the auto-correction and by affinity.basins)
+    # ------------------------------------------------------------------ #
+    @property
+    def symmetry(self):
+        """``docking.ligand_rmsd.LigandSymmetry`` of the ligand (heavy-atom automorphisms), computed once."""
+        if self.ligand_symmetry is None:
+            from docking.ligand_rmsd import LigandSymmetry
+            self.ligand_symmetry = LigandSymmetry(self.mol)
+        return self.ligand_symmetry
+
+    def _need_structures(self) -> None:
+        if not hasattr(self, 'relax_pdb'):
+            raise RuntimeError('the stored structures are not loaded (Result(..., load_structure=False))')
+
+    def seed_ligand_xyz(self) -> np.ndarray:
+        """Heavy-atom coordinates of the ligand of every seed row, shape (n_seed, n_heavy, 3) in
+        ``relax_df`` order, atoms in ``symmetry.heavy_idx`` order; NaN rows where the ligand could
+        not be read. Needs the stored structures (``load_structure=True``)."""
+        if self._seed_xyz is None:
+            from docking.ligand_rmsd import heavy_xyz_from_pdb_lines, ligand_lines
+            self._need_structures()
+            sym = self.symmetry
+            out = np.full((len(self.relax_pdb), sym.n_heavy, 3), np.nan)
+            for k, pdb_str in enumerate(self.relax_pdb):
+                lines = pdb_str.split('\n')
+                try:
+                    li = ligand_lines(lines)
+                    out[k] = heavy_xyz_from_pdb_lines([lines[i] for i in li], self.atmname_to_index, sym)
+                except Exception:
+                    pass
+            self._seed_xyz = out
+        return self._seed_xyz
+
+    def docked_ligand_xyz(self) -> np.ndarray:
+        """Heavy-atom coordinates of the ligand of every docked pose, shape (n_docked, n_heavy, 3)
+        in ``docking_df`` order, atoms in ``symmetry.heavy_idx`` order, reconstructed from the
+        stored line diffs against the docking reference seed of the pose's receptor state
+        (``reference_index``); NaN rows where the ligand could not be reconstructed. Needs the
+        stored structures (``load_structure=True``)."""
+        if self._docked_xyz is None:
+            from docking.ligand_rmsd import docked_ligand_lines, heavy_xyz_from_pdb_lines, ligand_lines
+            self._need_structures()
+            sym = self.symmetry
+            protocols = self.docking_df['type'].to_numpy()
+            states = np.array(['_'.join(p.split('_')[:-2]) for p in protocols])
+            ref = {}
+            for st in np.unique(states):
+                lines = self.relax_pdb[self.reference_index(st)].split('\n')
+                ref[st] = (lines, ligand_lines(lines))
+            n = len(protocols)
+            out = np.full((n, sym.n_heavy, 3), np.nan)
+            for k, upd in enumerate(self.docking_pdb_updates[:n]):
+                lines, li = ref[states[k]]
+                try:
+                    out[k] = heavy_xyz_from_pdb_lines(docked_ligand_lines(lines, li, upd), self.atmname_to_index, sym)
+                except Exception:
+                    pass
+            self._docked_xyz = out
+        return self._docked_xyz
 
     def reference_index(self, state: str) -> int:
         """Row of ``relax_df`` that the docking of *state* started from: the lowest **stored**

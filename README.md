@@ -236,10 +236,12 @@ with the CASF scoring power. Methods and results: [docs/affinity.md](docs/affini
 uv run python -m affinity.train                 # feature cache + the grid, ~15 min
 uv run python -m affinity.report                # tables and figures
 uv run python -m affinity.diagnostics           # regression-to-the-mean and pose-energy-distribution diagnostics
+uv run python -m affinity.basins                # basins of every perturb run (pairwise ligand RMSD + leader clustering), ~30 min
 ```
 
 Outputs: `data/affinity/` (feature cache, `results.csv`, weights, per-complex predictions) and
-`data/figures/affinity/affinity_tables.md` with the figures.
+`data/figures/affinity/affinity_tables.md` with the figures; `data/affinity/basins/` (the basin
+tables and the pairwise RMSD matrices, [docs/basins.md](docs/basins.md)).
 
 ## Open TODOs
 
@@ -247,7 +249,8 @@ Outputs: `data/affinity/` (feature cache, `results.csv`, weights, per-complex pr
 - Distribution of the exact PyRosetta build 2025.47 (section 1.2).
 - Exact PDBbind package name, download date and citation; ship the docked-set `index.txt`.
 - Wall-time distribution per complex (section 2.2).
-- Track 1 figures (section 3); Appendix A.3 step 2 of the affinity track (open decision).
+- Track 1 figures (section 3); Appendix A.3 step 2 of the affinity track (part of this paper
+  by decision; the basins of step 2a exist, the test of their statistics and step 2b are open).
 
 See [CLAUDE.md](CLAUDE.md) for the developer-level documentation and
 [docs/](docs/README.md) for the paper planning documents.

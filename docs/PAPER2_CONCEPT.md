@@ -364,11 +364,15 @@ realistic.
 
 - [ ] Paper 1 / Paper 2 boundary agreed with co-authors (Josephine's section, the ensemble
       material moves here).
-- [ ] **Boundary moved on 2026-10-09:** Paper 1's story update gives it a third track (affinity),
-      ending in a fitted-density free energy with Bayesian error bars — see
-      [PAPER1_STORY_INVENTORY.md](PAPER1_STORY_INVENTORY.md) Appendix A.3. That is the
-      descriptive sibling of S3–S5 here. Decide which paper owns it before either is drafted; if it works well, it probably
-      belongs here and Paper 1 stops after the best-pose reweighting.
+- [x] **Boundary moved on 2026-10-09, decided 2026-10-22:** Paper 1's story update gives it a
+      third track (affinity), ending in a fitted-density free energy with Bayesian error bars —
+      see [PAPER1_STORY_INVENTORY.md](PAPER1_STORY_INVENTORY.md) Appendix A.3. That is the
+      descriptive sibling of S3–S5 here. **Decision: all of A.3 (the best-pose reweighting, the
+      basins of the existing poses = step 2a, and the descriptive fitted-density estimator =
+      step 2b) belongs to Paper 1; this paper keeps the trained version** (learned proposal
+      density, the thermodynamic cycle, the Boltzmann-consistent objective, the estimator
+      comparison, the calibration tests). The basin tables and pairwise ligand RMSD matrices of
+      Paper 1 (`affinity.basins`, [basins.md](basins.md)) are the input of S2 / S3 here.
 - [ ] Paper 1's energy-degeneracy analysis (inventory Appendix A.1) and oracle probe (A.2) are the cleanest
       motivation for this paper's premise ("the energies cannot rank; use the ensemble"). Cite
       them rather than repeating them.

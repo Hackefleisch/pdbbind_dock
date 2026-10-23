@@ -55,6 +55,7 @@ affinity/                Track 3 — score vs. affinity (S7): the interface delt
   evaluate.py            Pearson r, Spearman ρ, RMSE with bootstrap CIs and the paired Δ to the calibrated interface delta
   train.py, report.py    CLIs: the grid label set x split x pool x aggregation -> data/affinity/; tables + figures -> data/figures/affinity/
   diagnostics.py         regression-to-the-mean table + pose-energy-distribution statistics vs pK -> data/figures/affinity/diagnostics.md
+  basins.py              A.3 step 2a: pairwise ligand RMSD + leader clustering per docking run -> data/affinity/basins/
 scripts/                 run_*.slurm, filter_pdbbind.py, h5_size.py
 docs/                    methods-level documentation and the paper planning documents
 data/                    ALL inputs, docking outputs, caches, figures — git-ignored
@@ -85,7 +86,8 @@ notebooks in the repository; the former exploratory notebooks were folded into
 - [docking/ligand_rmsd.py](docking/ligand_rmsd.py) — symmetry-corrected, **in-place**
   heavy-atom ligand RMSD (graph automorphisms; validated against Rosetta's
   `automorphic_rmsd`). Used by the auto-correction in `docking/result.py` (and thus by
-  the extraction); the runner itself is untouched.
+  the extraction); the runner itself is untouched. `LigandSymmetry.pairwise_rmsd` gives the
+  full pose × pose matrix of a run through one Gram matrix per automorphism (`affinity.basins`).
 - [docking/xml_protocols/](docking/xml_protocols/) — each protocol XML must
   define a `hard_rep` score function and a `ParsedProtocol` mover.
 - Launchers in [scripts/](scripts/): `run_all.slurm` (PDBbind, array 0–11459),
@@ -220,8 +222,21 @@ test complexes, l1 fits.
   with their partial correlations with pK given size and minimum → `diagnostics.md`,
   `data/affinity/shape_statistics.parquet`. Result: the distribution adds nothing beyond the
   minimum and the size (partial ρ within ±0.07); constraint on A.3 step 2 recorded in the inventory.
-- Not implemented by decision: Appendix A.3 step 2 (sampled-density free energy) and the RMSD
-  clustering of the legacy grid.
+- `basins.py` — **A.3 step 2a, item 1 of step 2** (implemented 2026-10-22, documented in
+  [docs/basins.md](docs/basins.md)): per docking run (the three perturb protocols, all three
+  sets, complete complexes) the pairwise symmetry-corrected in-place ligand RMSD of the 300 poses
+  (`LigandSymmetry.pairwise_rmsd` on `Result.docked_ligand_xyz`) and a greedy leader clustering on
+  the poses sorted by interface delta (the best pose founds basin 0, every pose joins the first
+  founder within the cutoff or founds a new basin) at 1 Å and 2 Å. `uv run python -m
+  affinity.basins [--score total] [--limit N]` → `data/affinity/basins/{poses,basins,runs}.parquet`,
+  `rmsd/<set>.h5` (condensed float16 matrices, `load_rmsd_matrix`), `summary.{csv,md}`,
+  `config.json` (~30 min, 22 workers, one BLAS thread per worker; start it detached with
+  `setsid nohup`). Result (run of 2026-10-23, 35,748 runs): at 1 Å a run falls into ~270 basins
+  (92 % singletons, best basin 2–4 poses), at 2 Å into ~190 (76 % singletons, best basin 6–10),
+  so populations are resolved only at 2 Å; the native basin exists in 86–95 % of the runs and is
+  not the best in 24–40 % (1.5–1.9 REU above the minimum); % best basin native = the benchmark's
+  Success@1 exactly. The test of the basin statistics against pK (S7 to-do) and step 2b are not
+  implemented yet; Appendix A.3 as a whole is Paper 1 material (decided 2026-10-22).
 - Result (2026-10-22, headline cell, MAE in pK): constant 1.56, unmodified 1.49, ligand size
   1.46, reweighted 1.45–1.46; the 95 % lower bound sits 2.4 pK below the prediction and certifies
   a 10 µM binder for ~10 % of the complexes; the best hit (1.54) and the relaxed holo complex
@@ -233,7 +248,9 @@ test complexes, l1 fits.
   reader used by the extraction. **Auto-corrects
   `total_score`, `rmsd_to_crystal`, `rmsd_to_input` by default** (see "Legacy semantics").
   It does **not** import PyRosetta (it carries its own copy of `mol_result`), so the whole
-  analysis runs without PyRosetta.
+  analysis runs without PyRosetta. `seed_ligand_xyz()` / `docked_ligand_xyz()` return the
+  heavy-atom ligand coordinates of every seed / docked pose (reconstructed from the stored
+  diffs; the auto-correction and `affinity.basins` use them; need `load_structure=True`).
 
 ## HDF5 schema (one file per complex, written by runner.py)
 
@@ -280,6 +297,7 @@ SLURM scripts expect the same names under `$WORKSPACE/data/`.
 | `ranking/<run>/` | small | Track 2 runs written by `ranking.train`: model, scaler, per-run tables, `results.json/.md`, `train.log`. |
 | `ranking/degeneracy/`, `ranking/degeneracy_total/` | 530 M each | S6 tables of `ranking.degeneracy` (interface-delta terms / raw totals): `runs.parquet`, `poses.parquet` (one row per pose of every perturb run with a hit), `summary.{csv,md}`. |
 | `affinity/` | 27 M | Track 3 (`affinity.train`): `features.parquet` (per complex × pool × aggregation: the aggregated terms, interface delta, RMSD), `labels.csv`, `baseline_all.csv`, `results.csv`, `weights.csv` + `.wts`, `predictions.parquet`, `results.{json,md}`, `train.log`. |
+| `affinity/basins/` | 4.0 G | A.3 step 2a (`affinity.basins`): `poses.parquet` (basin id per pose and cutoff), `basins.parquet` (one row per basin), `runs.parquet` (one row per run × cutoff), `rmsd/<set>.h5` (the condensed pairwise ligand RMSD matrices, float16, 3.1 G for PDBbind), `summary.{csv,md}`, `config.json`, `basins.log`. |
 | `failed_logs/` | 472 K | SLURM `.out`/`.err` of the 57 docking tasks that failed on the cluster; source of `docking_analysis/failed_pdb_ids/`. |
 | `figures/` | — | Generated figures and tables: `benchmark/` (Track 1), `ranking/` (Track 2 report), `degeneracy/` (S6 figures, examples, embeddings, `degeneracy_tables.md`), `affinity/` (Track 3 tables + figures); regenerated, safe to clear. |
 | `h5_test/` | — | Output of the local smoke test (`python -m docking.runner`); absent unless it was run. |
